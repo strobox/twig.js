@@ -815,7 +815,112 @@ module.exports = function (Twig) {
 
             switch (token.type) {
                 case Twig.token.type.raw:
-                    output.push(Twig.filters.raw(token.value));
+                    //output.push(Twig.filters.raw(token.value));
+                    let out = "", nextEl = "", props, prevOpenTags = [], prevTagDepth;
+                    const nextExprAttr = token.value.match(/^" (\w+)="$/) 
+                    if(nextExprAttr && nextExprAttr[1]) {
+                        output.push(nextExprAttr[1]+':');
+                        break;
+                    }
+                    const regTag = /<\/?(\w+)([^<]*)/g;
+                    let result, afterTagName, attrPart, tagCnt, textCnt, propsRes,
+                        openTagCnt = 0, wasAttrExpr = 0, prevOpenText;
+                    while((result = regTag.exec(token.value)) !== null) {
+                        if(context.attr_expr) {
+                            context.attr_expr = false;
+                            out += "},[";
+                        }
+
+                        if(prevOpenTags.length && ("</"+prevOpenTags[prevOpenTags.length-1] +">" == result[0].trim())) {  // </ + div == </div (closed tag)
+                                out += "])";
+                                prevOpenTags.pop();
+                                openTagCnt--;
+                                continue;
+                        }
+                        if(prevOpenText) {
+                            out += ",";
+                            prevOpenText = false;
+                        }
+                        if(prevOpenTags.length && prevTagDepth < prevOpenTags.length) {
+                            out += ",["
+                        }
+                        prevTagDepth = prevOpenTags.length;
+                        attrPart = "";
+                        propsRes = "";
+                        textCnt = "";
+                        props = "";
+                        tagCnt = 0;
+                        afterTagName = result[2] ? result[2].trim() : null;
+                        const tgtype = afterTagName ? {
+                            ATTR_EXPR: afterTagName && afterTagName.slice(-2)=='="',
+                            WHOLE: afterTagName && afterTagName.slice(-1)=='>',
+                            WHOLE_SELF_CLOSE: afterTagName && afterTagName.slice(-2)=='/>',
+
+                        } : {STRANGE: true};
+                        const cltagp = afterTagName.indexOf('>');
+                        if(cltagp>=0 && cltagp!=afterTagName.length-1) { // have full tag and text after it
+                            attrPart = afterTagName.slice(0,cltagp);
+                            textCnt = afterTagName.slice(cltagp+1);
+                        } else {
+                            attrPart = afterTagName;
+                        }
+
+                        if(tgtype.STRANGE) {
+                            console.warn('strange markup '+token.value);
+                            nextEl = "";
+                            continue;
+                        } else {
+                            nextEl = "React.createElement('"+result[1]+"', ";
+                            if(attrPart) {
+                                attrPart= " " + attrPart; // for fist tag match expression
+                               const regTag = /( (([\w-]+)=['"])(.+?)['"])/g
+                               while((propsRes = regTag.exec(attrPart)) !== null) {
+                                    tagCnt++;
+                                    const propName = propsRes[3] == "class" ? "className" : propsRes[3];
+                                    props += propName + ':"' + propsRes[4] + '",'
+                                   
+                               }
+                               if(props.length) props = props.slice(0,-1); // remove (,) at end 
+                               nextEl+= tagCnt==0 ? "null" : '{'+props+(tgtype.ATTR_EXPR?'':'}' )
+                               if(tgtype.ATTR_EXPR) {
+                                  wasAttrExpr++;
+                                  context.attr_expr = true;
+                                  nextEl+= ", " + attrPart.match(/(\w+)="$/)[1] + ":";
+                               }
+                            } else {
+                                nextEl += "null"
+                            }
+                            if(textCnt) {
+                                nextEl+=',["'+textCnt.replace(/[\r\n]+/g,"\\n")+'"';
+                                prevOpenText = true;
+                                prevTagDepth = prevOpenTags.length+1; // trick for skip ([ ) open again
+                            }
+                            if(tgtype.WHOLE_SELF_CLOSE) {
+                                nextEl+="),";
+                            }
+                            if(!tgtype.WHOLE_SELF_CLOSE && !tgtype.ATTR_EXPR) {
+                                prevOpenTags.push(result[1]);
+                            }
+                            if(!tgtype.WHOLE_SELF_CLOSE && !tgtype.ATTR_EXPR) { // </ + div == </div (closed tag)
+                                openTagCnt++;
+                            }
+                        }
+                        out+=nextEl;
+ 
+ 
+                    }
+                    debugger;
+                    if(!wasAttrExpr) {
+                       while(openTagCnt-- > 0) {
+                           out+="])";
+                       } 
+                    }
+                    if(wasAttrExpr>1) {
+                        console.warn('Something wrong!')
+                    }                    
+
+                    output.push(out);
+                    
                     break;
 
                 case Twig.token.type.logic:
@@ -834,8 +939,9 @@ module.exports = function (Twig) {
                 case Twig.token.type.output:
                     Twig.log.debug("Twig.parse: ", "Output token: ", token.stack);
                     // Parse the given expression in the given context
-                    return Twig.expression.parseAsync.call(that, token.stack, context)
-                        .then(output_push);
+                    output.push("props."+token.stack[token.stack.length-1].value+"")
+                    //return Twig.expression.parseAsync.call(that, token.stack, context)
+                    //    .then(output_push);
             }
         })
         .then(function() {
