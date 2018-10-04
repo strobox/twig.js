@@ -809,27 +809,42 @@ module.exports = function (Twig) {
                 output.push(logic.output);
             }
         }
-
+        let  prevOpenTags = [], prevTagDepth;
         promise = Twig.async.forEach(tokens, function parseToken(token) {
             Twig.log.debug("Twig.parse: ", "Parsing token: ", token);
 
             switch (token.type) {
                 case Twig.token.type.raw:
                     //output.push(Twig.filters.raw(token.value));
-                    let out = "", nextEl = "", props, prevOpenTags = [], prevTagDepth;
-                    const nextExprAttr = token.value.match(/^" (\w+)="$/) 
-                    if(nextExprAttr && nextExprAttr[1]) {
-                        output.push(nextExprAttr[1]+':');
-                        break;
-                    }
+                    let out = "", nextEl = "", props;
+                    const nextExprAttr = token.value 
+
                     const regTag = /<\/?(\w+)([^<]*)/g;
                     let result, afterTagName, attrPart, tagCnt, textCnt, propsRes,
-                        openTagCnt = 0, wasAttrExpr = 0, prevOpenText;
-                    while((result = regTag.exec(token.value)) !== null) {
-                        if(context.attr_expr) {
+                        openTagCnt = 0, wasAttrExpr = 0, prevOpenText, token_value = token.value;
+
+                    if(context.attr_expr) {
+                        let tknTest;
+                        if(tknTest = token_value.match(/^" (\w+)="$/)){
+                            output.push(", "+tknTest[1]+':');
+                            token_value = token_value.slice(tknTest[0].length);
+                        } else if(tknTest = token_value.match(/^"\s*>/)) {
+                            output.push("}"); // or  },[ ???
                             context.attr_expr = false;
-                            out += "},[";
+                            const regTxt = token_value.match(/>([\s\S]*?)</);
+                            if(regTxt && regTxt[1]) {
+                                out+=',["'+regTxt[1].replace(/[\r\n]+/g,"\\n")+'"';
+                                prevOpenText = true;
+                                prevTagDepth = prevOpenTags.length+1; // trick for skip ([ ) open again
+                            }
+                        } else {
+                            context.attr_expr = false;
                         }
+                        debugger;
+                        //break;
+                    }
+                    while((result = regTag.exec(token_value)) !== null) {
+
 
                         if(prevOpenTags.length && ("</"+prevOpenTags[prevOpenTags.length-1] +">" == result[0].trim())) {  // </ + div == </div (closed tag)
                                 out += "])";
@@ -881,16 +896,16 @@ module.exports = function (Twig) {
                                    
                                }
                                if(props.length) props = props.slice(0,-1); // remove (,) at end 
-                               nextEl+= tagCnt==0 ? "null" : '{'+props+(tgtype.ATTR_EXPR?'':'}' )
+                               nextEl+= tagCnt==0 && !tgtype.ATTR_EXPR ? "null" : '{'+props+(tgtype.ATTR_EXPR?'':'}' )
                                if(tgtype.ATTR_EXPR) {
                                   wasAttrExpr++;
                                   context.attr_expr = true;
-                                  nextEl+= ", " + attrPart.match(/(\w+)="$/)[1] + ":";
+                                  nextEl+= (tagCnt==0 ? "" : ", ") + attrPart.match(/(\w+)="$/)[1] + ":";
                                }
                             } else {
                                 nextEl += "null"
                             }
-                            if(textCnt) {
+                            if(textCnt) { // DUPLICATE
                                 nextEl+=',["'+textCnt.replace(/[\r\n]+/g,"\\n")+'"';
                                 prevOpenText = true;
                                 prevTagDepth = prevOpenTags.length+1; // trick for skip ([ ) open again
@@ -898,7 +913,7 @@ module.exports = function (Twig) {
                             if(tgtype.WHOLE_SELF_CLOSE) {
                                 nextEl+="),";
                             }
-                            if(!tgtype.WHOLE_SELF_CLOSE && !tgtype.ATTR_EXPR) {
+                            if(!tgtype.WHOLE_SELF_CLOSE) {
                                 prevOpenTags.push(result[1]);
                             }
                             if(!tgtype.WHOLE_SELF_CLOSE && !tgtype.ATTR_EXPR) { // </ + div == </div (closed tag)
@@ -909,7 +924,6 @@ module.exports = function (Twig) {
  
  
                     }
-                    debugger;
                     if(!wasAttrExpr) {
                        while(openTagCnt-- > 0) {
                            out+="])";

@@ -14,7 +14,7 @@
     "type": "git",
     "url": "git://github.com/twigjs/twig.js.git"
   },
-  "main": "twig.js",
+  "main": "./src/twig.js",
   "engines": {
     "node": ">=4.0"
   },
@@ -26,7 +26,7 @@
     "postversion": "git push origin master && git push origin master --tags",
     "test": "npm run build && mocha -r should",
     "build-node": "webpack",
-    "build-browser": "WEBPACK_ENV=browser webpack",
+    "build-browser": "WEBPACK_ENV=browser webpack --watch --progress",
     "build": "npm run build-node && npm run build-browser"
   },
   "dependencies": {
