@@ -809,7 +809,7 @@ module.exports = function (Twig) {
                 output.push(logic.output);
             }
         }
-        let  prevOpenTags = [], prevTagDepth;
+        let  _prevOpenTags = [], _prevTagDepth, _prevOpenText, _onAttrExpr;
         promise = Twig.async.forEach(tokens, function parseToken(token) {
             Twig.log.debug("Twig.parse: ", "Parsing token: ", token);
 
@@ -819,56 +819,71 @@ module.exports = function (Twig) {
                     let out = "", nextEl = "", props;
                     const nextExprAttr = token.value 
 
-                    const regTag = /<\/?(\w+)([^<]*)/g;
+                    const regTag = /([^<>]*)<(\/?)(\w+)([^<]*)/g;
                     let result, afterTagName, attrPart, tagCnt, textCnt, propsRes,
-                        openTagCnt = 0, wasAttrExpr = 0, prevOpenText, token_value = token.value;
+                        openTagCnt = 0, wasAttrExpr = 0,  regTxt, token_value = token.value;
 
-                    if(context.attr_expr) {
+                    if(_onAttrExpr) {
                         let tknTest;
                         if(tknTest = token_value.match(/^" (\w+)="$/)){
                             output.push(", "+tknTest[1]+':');
                             token_value = token_value.slice(tknTest[0].length);
                         } else if(tknTest = token_value.match(/^"\s*>/)) {
                             output.push("}"); // or  },[ ???
-                            context.attr_expr = false;
-                            const regTxt = token_value.match(/>([\s\S]*?)</);
-                            if(regTxt && regTxt[1]) {
+                            _onAttrExpr = false;
+                            regTxt = token_value.match(/>([\s\S]*?)</);
+                            if(regTxt && regTxt[1]) { // Partially DUPLICATE 287h23j
                                 out+=',["'+regTxt[1].replace(/[\r\n]+/g,"\\n")+'"';
-                                prevOpenText = true;
-                                prevTagDepth = prevOpenTags.length+1; // trick for skip ([ ) open again
+                                _prevOpenText = true;
+                                _prevTagDepth = _prevOpenTags.length+1; // trick for skip ([ ) open again, (after tag with attr)
                             }
                         } else {
-                            context.attr_expr = false;
+                            _onAttrExpr = false;
                         }
-                        debugger;
+
                         //break;
                     }
                     while((result = regTag.exec(token_value)) !== null) {
 
+                        if(result[1] && result[1].trim().length) { // Partially DUPLICATE 287h23j (after exprr in text)
+                            out+=' + "'+result[1].replace(/[\r\n]+/g,"\\n")+'"';
+                            _prevOpenText = true;
+                            _prevTagDepth = _prevOpenTags.length+1; // trick for skip ([ ) open again
+                        }
 
-                        if(prevOpenTags.length && ("</"+prevOpenTags[prevOpenTags.length-1] +">" == result[0].trim())) {  // </ + div == </div (closed tag)
+                        if(_prevOpenTags.length && "/"==result[0][1] && _prevOpenTags[_prevOpenTags.length-1] == result[3]) {  // </ + div == </div (closed tag)
                                 out += "])";
-                                prevOpenTags.pop();
+                                _prevOpenTags.pop();
                                 openTagCnt--;
+                                if(result[4] && result[4].slice(1).trim().length) { // Partially DUPLICATE 287h23j (right after close tag)
+                                    out+=',"'+result[4].slice(1).replace(/[\r\n]+/g,"\\n")+'"';
+                                    _prevOpenText = true;
+                                    _prevTagDepth = _prevOpenTags.length+1; // trick for skip ([ ) open again
+                                }
+                                if(_prevOpenText) _prevOpenText = false;
                                 continue;
                         }
-                        if(prevOpenText) {
+                        if(_prevOpenText) {
                             out += ",";
-                            prevOpenText = false;
+                            _prevOpenText = false;
                         }
-                        if(prevOpenTags.length && prevTagDepth < prevOpenTags.length) {
+                        if(_prevOpenTags.length && _prevTagDepth < _prevOpenTags.length) {
                             out += ",["
                         }
-                        prevTagDepth = prevOpenTags.length;
+                        _prevTagDepth = _prevOpenTags.length;
                         attrPart = "";
                         propsRes = "";
                         textCnt = "";
                         props = "";
                         tagCnt = 0;
-                        afterTagName = result[2] ? result[2].trim() : null;
+                        if(result[2]=="/") {
+                            out+="])";
+                            continue;
+                        }
+                        afterTagName = result[4] ? result[4].trim() : null;
                         const tgtype = afterTagName ? {
                             ATTR_EXPR: afterTagName && afterTagName.slice(-2)=='="',
-                            WHOLE: afterTagName && afterTagName.slice(-1)=='>',
+                            WHOLE: result[2]!="/" && afterTagName && afterTagName.slice(-1)=='>',
                             WHOLE_SELF_CLOSE: afterTagName && afterTagName.slice(-2)=='/>',
 
                         } : {STRANGE: true};
@@ -885,7 +900,7 @@ module.exports = function (Twig) {
                             nextEl = "";
                             continue;
                         } else {
-                            nextEl = "React.createElement('"+result[1]+"', ";
+                            nextEl = "React.createElement('"+result[3]+"', ";
                             if(attrPart) {
                                 attrPart= " " + attrPart; // for fist tag match expression
                                const regTag = /( (([\w-]+)=['"])(.+?)['"])/g
@@ -899,22 +914,22 @@ module.exports = function (Twig) {
                                nextEl+= tagCnt==0 && !tgtype.ATTR_EXPR ? "null" : '{'+props+(tgtype.ATTR_EXPR?'':'}' )
                                if(tgtype.ATTR_EXPR) {
                                   wasAttrExpr++;
-                                  context.attr_expr = true;
+                                  _onAttrExpr = true;
                                   nextEl+= (tagCnt==0 ? "" : ", ") + attrPart.match(/(\w+)="$/)[1] + ":";
                                }
                             } else {
                                 nextEl += "null"
                             }
-                            if(textCnt) { // DUPLICATE
+                            if(textCnt) { // Partially DUPLICATE 287h23j
                                 nextEl+=',["'+textCnt.replace(/[\r\n]+/g,"\\n")+'"';
-                                prevOpenText = true;
-                                prevTagDepth = prevOpenTags.length+1; // trick for skip ([ ) open again
+                                _prevOpenText = true;
+                                _prevTagDepth = _prevOpenTags.length+1; // trick for skip ([ ) open again
                             }
                             if(tgtype.WHOLE_SELF_CLOSE) {
                                 nextEl+="),";
                             }
                             if(!tgtype.WHOLE_SELF_CLOSE) {
-                                prevOpenTags.push(result[1]);
+                                _prevOpenTags.push(result[3]);
                             }
                             if(!tgtype.WHOLE_SELF_CLOSE && !tgtype.ATTR_EXPR) { // </ + div == </div (closed tag)
                                 openTagCnt++;
@@ -924,7 +939,7 @@ module.exports = function (Twig) {
  
  
                     }
-                    if(!wasAttrExpr) {
+                    if(!wasAttrExpr && token.value.indexOf("</")>0) {
                        while(openTagCnt-- > 0) {
                            out+="])";
                        } 
@@ -938,6 +953,13 @@ module.exports = function (Twig) {
                     break;
 
                 case Twig.token.type.logic:
+                    if(_prevOpenTags.length && _prevTagDepth < _prevOpenTags.length) {
+                        output.push(",[");
+                    } else if(_prevOpenText) {
+                        output_push(",");
+                        _prevOpenText = false;
+                    }
+                    _prevTagDepth = _prevOpenTags.length;
                     return Twig.logic.parseAsync.call(that, token.token /*logic_token*/, context, chain)
                         .then(parseTokenLogic);
                     break;
@@ -953,7 +975,8 @@ module.exports = function (Twig) {
                 case Twig.token.type.output:
                     Twig.log.debug("Twig.parse: ", "Output token: ", token.stack);
                     // Parse the given expression in the given context
-                    output.push("props."+token.stack[token.stack.length-1].value+"")
+                    if(!_onAttrExpr && _prevOpenText) debugger;
+                    output.push((_onAttrExpr ? "":(_prevOpenText ? " + " : ",") )+ "props."+token.stack[token.stack.length-1].value+"")
                     //return Twig.expression.parseAsync.call(that, token.stack, context)
                     //    .then(output_push);
             }
