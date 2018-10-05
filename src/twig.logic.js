@@ -93,23 +93,17 @@ module.exports = function (Twig) {
             },
             parse: function (token, context, chain) {
                 var that = this;
-
+                // context.focused_block.stack = token.stack;
+                context.focused_block.stack = token.stack;
                 return Twig.expression.parseAsync.call(this, token.stack, context)
                 .then(function(result) {
                     chain = true;
-
-                    if (Twig.lib.boolval(result)) {
-                        chain = false;
-
-                        return Twig.parseAsync.call(that, token.output, context);
-                    }
-
-                    return '';
+                    return Twig.parseAsync.call(that, token.output, context);
                 })
                 .then(function(output) {
                     return {
                         chain: chain,
-                        output: output
+                        output: output ? output.reactOutput.join(''): ''
                     };
                 });
             }
@@ -140,21 +134,17 @@ module.exports = function (Twig) {
             },
             parse: function (token, context, chain) {
                 var that = this;
+                
+                context.focused_block.stack = token.stack;
 
                 return Twig.expression.parseAsync.call(this, token.stack, context)
                 .then(function(result) {
-                    if (chain && Twig.lib.boolval(result)) {
-                        chain = false;
-
                         return Twig.parseAsync.call(that, token.output, context);
-                    }
-
-                    return '';
                 })
                 .then(function(output) {
                     return {
-                        chain: chain,
-                        output: output
+                        chain: true,
+                        output: output ? output.reactOutput.join(''): ''
                     }
                 });
             }
@@ -173,16 +163,13 @@ module.exports = function (Twig) {
             ],
             open: false,
             parse: function (token, context, chain) {
-                var promise = Twig.Promise.resolve('');
 
-                if (chain) {
-                    promise = Twig.parseAsync.call(this, token.output, context);
-                }
+                var promise = Twig.parseAsync.call(this, token.output, context);
 
                 return promise.then(function(output) {
                     return {
-                        chain: chain,
-                        output: output
+                        chain: true,
+                        output: output ? output.reactOutput.join(''): ''
                     };
                 });
             }
@@ -255,6 +242,22 @@ module.exports = function (Twig) {
             },
             parse: function (token, context, continue_chain) {
                 // Parse expression
+                var output = [];
+                const {key_var,value_var} = token;
+                const forData = {key_var,value_var};
+                context.focused_block.expression = token.expression;
+                context.focused_block.forData = forData;
+                return Twig.parseAsync.call(this, token.output, context)
+                            .then(function(o) {
+                                output.push(o);
+                                //index += 1;
+                            }).then( function() {
+                                return {
+                                    chain: false,
+                                    output: `/*items.map( (item,idx) => ${output.map(o => o.reactOutput).join('')} )*/`
+                                }
+                            });
+
                 var output = [],
                     len,
                     index = 0,
@@ -526,6 +529,21 @@ module.exports = function (Twig) {
                 return token;
             },
             parse: function (token, context, chain) {
+                // Parse expression
+                var output = [];
+
+                context.focused_block.block = token.block;
+                return Twig.parseAsync.call(this, token.output, context)
+                            .then(function(o) {
+                                output.push(o);
+                                //index += 1;
+                            }).then( function() {
+                                return {
+                                    chain: false,
+                                    output: output.map(o => o.reactOutput).join('')
+                                }
+                            });
+
                 var that = this,
                     block_output,
                     output,
@@ -647,6 +665,7 @@ module.exports = function (Twig) {
             open: true,
             compile: function (token) {
                 var expression = token.match[1].trim();
+                token.expression = expression;
                 delete token.match;
 
                 token.stack   = Twig.expression.compile.call(this, {
@@ -657,6 +676,8 @@ module.exports = function (Twig) {
                 return token;
             },
             parse: function (token, context, chain) {
+                context.focused_block.expression = token.expression;
+                return '';
                 var template,
                     that = this,
                     innerContext = Twig.ChildContext(context);
@@ -741,7 +762,7 @@ module.exports = function (Twig) {
                     ignoreMissing = match[2] !== undefined,
                     withContext = match[3],
                     only = ((match[4] !== undefined) && match[4].length);
-
+                token.expression = expression;
                 delete token.match;
 
                 token.only = only;
@@ -763,6 +784,9 @@ module.exports = function (Twig) {
             },
             parse: function logicTypeInclude(token, context, chain) {
                 // Resolve filename
+                // context.focused_block.stack = token.stack;
+                context.focused_block.expression = token.expression;
+                return '';
                 var innerContext = token.only ? {} : Twig.ChildContext(context),
                     ignoreMissing = token.ignoreMissing,
                     that = this,
