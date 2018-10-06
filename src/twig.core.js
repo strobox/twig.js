@@ -813,14 +813,14 @@ module.exports = function (Twig) {
         function tnSantize(t) {
             return t.replace(/^[\r\n]+\s*/,"").replace(/\s*[\r\n]+\s*$/,"").replace(/[\r\n]+/g,"\n")
         }
-        let  _prevOpenTags = [], _prevTagDepth, _prevOpenText, _onAttrExpr;
+        let  _prevOpenTags = [], _onAttrExpr;
         promise = Twig.async.forEach(tokens, function parseToken(token) {
             Twig.log.debug("Twig.parse: ", "Parsing token: ", token);
 
             switch (token.type) {
                 case Twig.token.type.raw:
                     //output.push(Twig.filters.raw(token.value));
-                    let out = "", nextEl = "", nextElObj, props;
+                    let nextElObj, props;
                     const nextExprAttr = token.value 
 
                     const regTag = /([^<>]*)<(\/?)(\w+)([^<]*)/g;
@@ -830,20 +830,15 @@ module.exports = function (Twig) {
                     if(_onAttrExpr) {
                         let tknTest;
                         if(tknTest = token_value.match(/^" (\w+)="$/)){ // / id="/
-                            output.push(", "+tknTest[1]+':');
                             token_value = token_value.slice(tknTest[0].length);
                             tree._focusedEl.nextAttr = tknTest[1];
                         } else if(tknTest = token_value.match(/^"\s*>/)) { // /    >/
-                            output.push("}"); // or  },[ ???
                             _onAttrExpr = false;
                             delete tree._focusedEl.nextAttr;
                             regTxt = token_value.match(/>([\s\S]*?)</);
 
                             if(regTxt && regTxt[1]) { // Partially DUPLICATE 287h23j
-                                out+=',["'+tnSantize(regTxt[1])+'"';
                                 tree._focusedEl.blocks.push( {type:"text_node",value:tnSantize(regTxt[1])})
-                                _prevOpenText = true;
-                                _prevTagDepth = _prevOpenTags.length+1; // trick for skip ([ ) open again, (after tag with attr)
                                 token_value = token_value.slice(regTxt[0].length);
                             }
                         } else {
@@ -855,35 +850,21 @@ module.exports = function (Twig) {
                     while((result = regTag.exec(token_value)) !== null) {
 
                         if(result[1] && result[1].trim().length) { // Partially DUPLICATE 287h23j (after exprr in text)
-                            out+=' + "'+tnSantize(result[1])+'"';
                             tree._focusedEl.blocks.push( {type:"text_node",value:tnSantize(result[1])})
-                            _prevOpenText = true;
-                            _prevTagDepth = _prevOpenTags.length+1; // trick for skip ([ ) open again
                         }
 
                         if(_prevOpenTags.length && "/"==result[0][1] && _prevOpenTags[_prevOpenTags.length-1] == result[3]) {  // closing tag
-                                out += "])";
                                 _prevOpenTags.pop();
                                 openTagCnt--;
                                 tree._focusedEl = tree._focusedEl.parent;
                                 if(result[4] && result[4].slice(1).trim().length) { // Partially DUPLICATE 287h23j (right after close tag)
-                                    out+=',"'+tnSantize(result[4].slice(1))+'"';
                                     tree._focusedEl.blocks.push( {type:"text_node",value:tnSantize(result[4].slice(1))})
 
-                                    _prevOpenText = true;
-                                    _prevTagDepth = _prevOpenTags.length+1; // trick for skip ([ ) open again
                                 }
-                                if(_prevOpenText) _prevOpenText = false;
                                 continue;
                         }
-                        if(_prevOpenText) {
-                            out += ",";
-                            _prevOpenText = false;
-                        }
-                        if(_prevOpenTags.length && _prevTagDepth < _prevOpenTags.length) {
-                            out += ",["
-                        }
-                        _prevTagDepth = _prevOpenTags.length;
+                        
+
                         attrPart = "";
                         propsRes = "";
                         textCnt = "";
@@ -891,7 +872,6 @@ module.exports = function (Twig) {
                         tagCnt = 0;
 
                         if(result[2]=="/") {
-                            out+="])";
                             continue;
                         }
                         afterTagName = result[4] ? result[4].trim() : null;
@@ -912,12 +892,10 @@ module.exports = function (Twig) {
                         tree._focusedEl.blocks.push(nextElObj);
                         if(tgtype.STRANGE) {
                             console.warn('strange markup '+token.value);
-                            nextEl = "";
                             nextElObj.type = "strange";
                             nextElObj.debug = token.value;
                             continue;
                         } else {
-                            nextEl = "React.createElement('"+result[3]+"', ";
                             nextElObj.tag = result[3];
                             nextElObj.path+= result[3];
                             nextElObj.type = 'react';
@@ -934,26 +912,19 @@ module.exports = function (Twig) {
                                    
                                }
                                if(props.length) props = props.slice(0,-1); // remove (,) at end 
-                               nextEl+= tagCnt==0 && !tgtype.ATTR_EXPR ? "null" : '{'+props+(tgtype.ATTR_EXPR?'':'}' )
                                if(tgtype.ATTR_EXPR) {
                                   wasAttrExpr++;
                                   _onAttrExpr = true;
                                   const nextAttrName = attrPart.match(/(\w+)="$/)[1];
-                                  nextEl+= (tagCnt==0 ? "" : ", ") + nextAttrName + ":"; // out 100
                                   nextElObj.nextAttr = nextAttrName;
                                }
                             } else {
-                                nextEl += "null"
                             }
                             if(textCnt) { // Partially DUPLICATE 287h23j
-                                nextEl+=',["'+tnSantize(textCnt)+'"';
                                 nextElObj.blocks.push( {type:"text_node",value:tnSantize(textCnt)})
-                                _prevOpenText = true;
-                                _prevTagDepth = _prevOpenTags.length+1; // trick for skip ([ ) open again
                             }
                             
                             if(tgtype.WHOLE_SELF_CLOSE) {
-                                nextEl+="),";
                             } else {
                                 tree._focusedEl = nextElObj;
                                 
@@ -965,13 +936,11 @@ module.exports = function (Twig) {
                                 openTagCnt++;
                             }
                         }
-                        out+=nextEl;
  
  
                     }
                     if(!wasAttrExpr && token.value.indexOf("</")>0) {
                        while(openTagCnt-- > 0) {
-                           out+="])";
                            tree._focusedEl = tree._focusedEl.parent;
                        } 
                     }
@@ -979,17 +948,11 @@ module.exports = function (Twig) {
                         console.warn('Something wrong!')
                     }                    
 
-                    output.push(out);
                     
                     break;
 
                 case Twig.token.type.logic:
-                    if(_prevOpenTags.length && _prevTagDepth < _prevOpenTags.length) {
-                        output.push(",[");
-                    } else if(_prevOpenText) {
-                        output_push(",");
-                        _prevOpenText = false;
-                    }
+
                     const logicType = token.token.type.split('.').pop().toUpperCase();
                     var inner_context = Twig.ChildContext(context);
                     const nextObj = {type:'LOGIC',logic: logicType ,parent:tree._focusedEl,path:tree._focusedEl.path+'['+tree._focusedEl.blocks.length+']/'+logicType,blocks:[]};
@@ -997,7 +960,6 @@ module.exports = function (Twig) {
                     tree._focusedEl = nextObj
                     nextObj._focusedEl = nextObj;
                     inner_context.focused_block = nextObj;
-                    _prevTagDepth = _prevOpenTags.length;
                     return Twig.logic.parseAsync.call(that, token.token /*logic_token*/, inner_context, chain)
                         .then(parseTokenLogic).then(function() {
                                 // Delete loop-related variables from the context
@@ -1034,7 +996,6 @@ module.exports = function (Twig) {
                             stack: token.stack
                         })
                     }
-                    output.push((_onAttrExpr ? "":(_prevOpenText ? " + " : ",") )+ "props."+firstExpr.value+"")
                     //return Twig.expression.parseAsync.call(that, token.stack, context)
                     //    .then(output_push);
             }
@@ -1447,6 +1408,69 @@ module.exports = function (Twig) {
     };
 
     Twig.Template.prototype.render = function (context, params, allow_async) {
+        var that = this;
+
+        this.context = context || {};
+
+        // Clear any previous state
+        this.reset();
+        if (params && params.blocks) {
+            this.blocks = params.blocks;
+        }
+        if (params && params.macros) {
+            this.macros = params.macros;
+        }
+
+        return Twig.async.potentiallyAsync(this, allow_async, function() {
+            return Twig.parseAsync.call(this, this.tokens, this.context)
+            .then(function(output) {
+                var ext_template,
+                    url;
+
+                // Does this template extend another
+                if (that.extend) {
+
+                    // check if the template is provided inline
+                    if ( that.options.allowInlineIncludes ) {
+                        ext_template = Twig.Templates.load(that.extend);
+                        if ( ext_template ) {
+                            ext_template.options = that.options;
+                        }
+                    }
+
+                    // check for the template file via include
+                    if (!ext_template) {
+                        url = Twig.path.parsePath(that, that.extend);
+
+                        ext_template = Twig.Templates.loadRemote(url, {
+                            method: that.getLoaderMethod(),
+                            base: that.base,
+                            async:  false,
+                            id:     url,
+                            options: that.options
+                        });
+                    }
+
+                    that.parent = ext_template;
+
+                    return that.parent.renderAsync(that.context, {
+                        blocks: that.blocks
+                    });
+                }
+
+                if (!params) {
+                    return output.valueOf();
+                } else if (params.output == 'blocks') {
+                    return that.blocks;
+                } else if (params.output == 'macros') {
+                    return that.macros;
+                } else {
+                    return output.valueOf();
+                }
+            });
+        });
+    };
+    Twig.Template.prototype.getReactComp = function (context, params, allow_async) {
         var that = this;
 
         this.context = context || {};
