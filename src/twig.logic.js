@@ -93,8 +93,8 @@ module.exports = function (Twig) {
             },
             parse: function (token, context, chain) {
                 var that = this;
-                // context.focused_block.stack = token.stack;
-                context.focused_block.stack = token.stack;
+                // context.nodeInContext.stack = token.stack;
+                context.nodeInContext.stack = token.stack;
                 return Twig.expression.parseAsync.call(this, token.stack, context)
                 .then(function(result) {
                     chain = true;
@@ -135,7 +135,7 @@ module.exports = function (Twig) {
             parse: function (token, context, chain) {
                 var that = this;
                 
-                context.focused_block.stack = token.stack;
+                context.nodeInContext.stack = token.stack;
 
                 return Twig.expression.parseAsync.call(this, token.stack, context)
                 .then(function(result) {
@@ -245,8 +245,8 @@ module.exports = function (Twig) {
                 var output = [];
                 const {key_var,value_var} = token;
                 const forData = {key_var,value_var};
-                context.focused_block.expression = token.expression;
-                context.focused_block.forData = forData;
+                context.nodeInContext.expression = token.expression;
+                context.nodeInContext.forData = forData;
                 return Twig.parseAsync.call(this, token.output, context)
                             .then(function(o) {
                                 output.push(o);
@@ -532,7 +532,7 @@ module.exports = function (Twig) {
                 // Parse expression
                 var output = [];
 
-                context.focused_block.block = token.block;
+                context.nodeInContext.block = token.block;
                 return Twig.parseAsync.call(this, token.output, context)
                             .then(function(o) {
                                 output.push(o);
@@ -676,7 +676,7 @@ module.exports = function (Twig) {
                 return token;
             },
             parse: function (token, context, chain) {
-                context.focused_block.expression = token.expression;
+                context.nodeInContext.expression = token.expression;
                 return '';
                 var template,
                     that = this,
@@ -784,8 +784,8 @@ module.exports = function (Twig) {
             },
             parse: function logicTypeInclude(token, context, chain) {
                 // Resolve filename
-                // context.focused_block.stack = token.stack;
-                context.focused_block.expression = token.expression;
+                // context.nodeInContext.stack = token.stack;
+                context.nodeInContext.expression = token.expression;
                 return '';
                 var innerContext = token.only ? {} : Twig.ChildContext(context),
                     ignoreMissing = token.ignoreMissing,
