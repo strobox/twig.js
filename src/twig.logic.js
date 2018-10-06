@@ -103,7 +103,7 @@ module.exports = function (Twig) {
                 .then(function(output) {
                     return {
                         chain: chain,
-                        output: output ? output.reactOutput.join(''): ''
+                        output: output
                     };
                 });
             }
@@ -144,7 +144,7 @@ module.exports = function (Twig) {
                 .then(function(output) {
                     return {
                         chain: true,
-                        output: output ? output.reactOutput.join(''): ''
+                        output: output
                     }
                 });
             }
@@ -169,7 +169,7 @@ module.exports = function (Twig) {
                 return promise.then(function(output) {
                     return {
                         chain: true,
-                        output: output ? output.reactOutput.join(''): ''
+                        output: output
                     };
                 });
             }
@@ -254,7 +254,7 @@ module.exports = function (Twig) {
                             }).then( function() {
                                 return {
                                     chain: false,
-                                    output: `/*items.map( (item,idx) => ${output.map(o => o.reactOutput).join('')} )*/`
+                                    output: output
                                 }
                             });
 

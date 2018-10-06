@@ -1005,7 +1005,7 @@ module.exports = function (Twig) {
             console.log(tree);
             is_async = false;
             delete tree._focusedNode;
-            return {reactOutput:output,tree};
+            return {originalOutput:output,tree};
         })
         .catch(function(e) {
             if (allow_async)
@@ -1407,10 +1407,10 @@ module.exports = function (Twig) {
         this.parseStack = [];
     };
 
-    Twig.Template.prototype.render = function (context, params, allow_async) {
+    Twig.Template.prototype.render = function (defProps, params, allow_async) {
         var that = this;
 
-        this.context = context || {};
+        this.defProps = defProps || {};
 
         // Clear any previous state
         this.reset();
@@ -1422,13 +1422,13 @@ module.exports = function (Twig) {
         }
 
         return Twig.async.potentiallyAsync(this, allow_async, function() {
-            return Twig.parseAsync.call(this, this.tokens, this.context)
+            return Twig.parseAsync.call(this, this.tokens, this.defProps)
             .then(function(output) {
                 var ext_template,
                     url;
 
                 // Does this template extend another
-                if (that.extend) {
+                if (that.extend) {/* 
 
                     // check if the template is provided inline
                     if ( that.options.allowInlineIncludes ) {
@@ -1453,10 +1453,11 @@ module.exports = function (Twig) {
 
                     that.parent = ext_template;
 
-                    return that.parent.renderAsync(that.context, {
+                    return that.parent.renderAsync(that.defProps, {
                         blocks: that.blocks
                     });
-                }
+                 */}
+                return output;
 
                 if (!params) {
                     return output.valueOf();
@@ -1470,68 +1471,97 @@ module.exports = function (Twig) {
             });
         });
     };
-    Twig.Template.prototype.getReactComp = function (context, params, allow_async) {
-        var that = this;
 
-        this.context = context || {};
-
-        // Clear any previous state
-        this.reset();
-        if (params && params.blocks) {
-            this.blocks = params.blocks;
+    function createChilds(nodes,_props,key,React) {
+        if(nodes.length > 1) {
+            // return `,[${nodes.map(b => nodeToEl(b)).join(', ')}]`
+            return nodes.map(b => nodeToEl(b,_props,key,React))
+        } else if(nodes.length==1) {
+            // return ',' + nodeToEl(nodes[0])
+            return nodeToEl(nodes[0],_props,key,React)
+        } else {
+            // return '';
         }
-        if (params && params.macros) {
-            this.macros = params.macros;
-        }
-
-        return Twig.async.potentiallyAsync(this, allow_async, function() {
-            return Twig.parseAsync.call(this, this.tokens, this.context)
-            .then(function(output) {
-                var ext_template,
-                    url;
-
-                // Does this template extend another
-                if (that.extend) {
-
-                    // check if the template is provided inline
-                    if ( that.options.allowInlineIncludes ) {
-                        ext_template = Twig.Templates.load(that.extend);
-                        if ( ext_template ) {
-                            ext_template.options = that.options;
+    }
+    function applyExpression(stack,props,attrName='val') {
+        let res = {val:''};
+        if(stack && stack.length) {
+            if(stack[0].type=='Twig.expression.type.variable') {
+                try {
+                    res[attrName] = props[stack[0].value];
+                    for (var i = 1; i < stack.length; i++) {
+                        if(stack[i].type == 'Twig.expression.type.key.period'){
+                            res[attrName] = res[attrName][stack[i].key]
+                        } else {
+                            console.warn('Not implemented')
                         }
-                    }
-
-                    // check for the template file via include
-                    if (!ext_template) {
-                        url = Twig.path.parsePath(that, that.extend);
-
-                        ext_template = Twig.Templates.loadRemote(url, {
-                            method: that.getLoaderMethod(),
-                            base: that.base,
-                            async:  false,
-                            id:     url,
-                            options: that.options
-                        });
-                    }
-
-                    that.parent = ext_template;
-
-                    return that.parent.renderAsync(that.context, {
-                        blocks: that.blocks
-                    });
+                    }    
+                } catch(e) {
+                    console.warn('expression evaluation error ',e)
                 }
 
-                if (!params) {
-                    return output.valueOf();
-                } else if (params.output == 'blocks') {
-                    return that.blocks;
-                } else if (params.output == 'macros') {
-                    return that.macros;
-                } else {
-                    return output.valueOf();
+            } else {
+                console.warn('Not implemented')
+            }
+        } 
+        return res[attrName];
+    }
+    function nodeToEl(node,_props,key,React) {
+        const {type,value,logic,parent,stack,expression,forData,tag,attrs,attrExpr,nodes} = node;
+        if(type=='text_node') return value; //return `"${value}"`;
+        else if(type=='react') {
+            const rProps = {...attrs,key};
+            Object.keys(attrExpr).forEach( attrName => {
+                rProps[attrName] = applyExpression(attrExpr[attrName],_props,attrName);
+            })
+            const chlds = createChilds(nodes,_props,key,React);
+            return !chlds || chlds.constructor!=Array ? 
+                React.createElement(tag,rProps,chlds) :
+                React.createElement.apply(React,[tag,rProps,...chlds]);
+        } else if(type=='LOGIC') {
+            if(logic=="FOR" && expression && expression[0] && _props[expression[0].value] ) {
+                const {key_var,value_var} = forData;
+                return _props[expression[0].value].map( (obj,idx) => {
+                    const key = key_var?obj[key_var]:idx,
+                        rProps = {
+                            ..._props,
+                            [value_var]:obj
+                        };
+                    return createChilds(nodes,rProps,key,React);
+                })
+            }
+            if(logic=="IF" || (logic=="ELSEIF" && !parent.skip)) {
+                delete parent.skip;
+                if(applyExpression(stack,_props)) {
+                    parent.skip = true;
+                    return createChilds(nodes,_props,key,React);
                 }
-            });
-        });
+            }
+            if(logic == "ELSE") {
+                if(!parent.skip) return createChilds(nodes,_props,key,React)
+                else delete parent.skip;
+            }
+        } else if(type=='EXPR') {
+            return applyExpression(stack,_props);
+        } 
+        return null;
+    }
+    function nodesToComponent(nodes,React) {
+        if(!nodes||!nodes.length) return _props => null
+
+        return nodes.length > 1 ?
+         // `React.createElement('heading',null${createChilds(nodes)}` :
+         _props => React.createElement(React.Fragment,null,createChilds(nodes,_props,null,React)) :
+         _props => nodeToEl(nodes[0],_props,null,React);
+    }
+
+    Twig.Template.prototype.getReactComp = function (context, params, allow_async) {
+        const {React} = context;
+        delete context.React;
+        const {tree } = this.render(context, params, allow_async),
+            Component = nodesToComponent(tree.nodes, React);
+        Component.tree = tree;
+        return Component;
     };
 
     Twig.Template.prototype.importFile = function(file) {
