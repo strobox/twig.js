@@ -1457,6 +1457,7 @@ module.exports = function (Twig) {
                         blocks: that.blocks
                     });
                  */}
+                output.getReactComp = that.getReactComp.bind(that);
                 return output;
 
                 if (!params) {
