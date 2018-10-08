@@ -83,6 +83,7 @@ module.exports = function (Twig) {
             open: true,
             compile: function (token) {
                 var expression = token.match[1];
+                token.expression = expression;
                 // Compile the expression.
                 token.stack = Twig.expression.compile.call(this, {
                     type:  Twig.expression.type.expression,
@@ -93,7 +94,7 @@ module.exports = function (Twig) {
             },
             parse: function (token, context, chain) {
                 var that = this;
-                // context.nodeInContext.stack = token.stack;
+                context.nodeInContext.expression = token.expression;
                 context.nodeInContext.stack = token.stack;
                 return Twig.expression.parseAsync.call(this, token.stack, context)
                 .then(function(result) {
@@ -124,6 +125,7 @@ module.exports = function (Twig) {
             open: false,
             compile: function (token) {
                 var expression = token.match[1];
+                token.expression = expression;
                 // Compile the expression.
                 token.stack = Twig.expression.compile.call(this, {
                     type:  Twig.expression.type.expression,
@@ -136,6 +138,7 @@ module.exports = function (Twig) {
                 var that = this;
                 
                 context.nodeInContext.stack = token.stack;
+                context.nodeInContext.expression = token.expression;
 
                 return Twig.expression.parseAsync.call(this, token.stack, context)
                 .then(function(result) {

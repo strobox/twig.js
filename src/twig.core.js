@@ -825,7 +825,7 @@ module.exports = function (Twig) {
 
                     const regTag = /([^<>]*)<(\/?)(\w+)([^<]*)/g;
                     let result, afterTagName, attrPart, tagCnt, textCnt, propsRes,
-                        openTagCnt = 0, wasAttrExpr = 0,  regTxt, token_value = token.value;
+                        openTagCnt = 0, wasAttrExpr = 0,  regTxt, token_value = token.value, wasMatch = false;
 
                     if(_onAttrExpr) {
                         let tknTest;
@@ -848,7 +848,7 @@ module.exports = function (Twig) {
                         //break;
                     }
                     while((result = regTag.exec(token_value)) !== null) {
-
+                        wasMatch = true;
                         if(result[1] && result[1].trim().length) { // Partially DUPLICATE 287h23j (after exprr in text)
                             tree._focusedNode.nodes.push( {type:"text_node",value:tnSantize(result[1])})
                         }
@@ -939,6 +939,9 @@ module.exports = function (Twig) {
  
  
                     }
+                    if(!wasMatch && token.value.trim().length) 
+                        tree._focusedNode.nodes.push( {type:"text_node",value:tnSantize(token.value)})
+
                     if(!wasAttrExpr && token.value.indexOf("</")>0) {
                        while(openTagCnt-- > 0) {
                            tree._focusedNode = tree._focusedNode.parent;
@@ -1472,18 +1475,26 @@ module.exports = function (Twig) {
             });
         });
     };
+    function afterNode(output,node,res) {
+        if(node.ifElseStrBuild) {
+            Array.prototype.push.apply(output, node.ifElseStrBuild)
+            output.push(',{elem:null,cond: p=>true }].find( c => !!c.cond(p)).elem')
+            delete node.ifElseStrBuild;
+        }
+        return res;
+    }
 
     function createChilds(nodes,_props,key,{React,inh},output,isReactChild) {
         if(nodes.length > 1) {
-            // return `,[${nodes.map(b => nodeToEl(b)).join(', ')}]`
+            // return `,[${nodes.map(b => afterNode(output,b,nodeToEl(b))).join(', ')}]`
             if(isReactChild) output.push(',')
-            const resNodes = nodes.map(b => nodeToEl(b,_props,key,{React,inh},output))
+            const resNodes = nodes.map(b => afterNode(output,b,nodeToEl(b,_props,key,{React,inh},output)))
             output.pop();
             return resNodes;
         } else if(nodes.length==1) {
-            // return ',' + nodeToEl(nodes[0])
+            // return ',' + afterNode(output,nodes[0],nodeToEl(nodes[0]))
             if(isReactChild) output.push(',')
-            const resEl = nodeToEl(nodes[0],_props,key,{React,inh},output)
+            const resEl = afterNode(output,nodes[0],nodeToEl(nodes[0],_props,key,{React,inh},output))
             output.pop();
             return resEl;
         } else {
@@ -1517,14 +1528,16 @@ module.exports = function (Twig) {
     const RCR = 'R.c('
     function nodeToEl(node,_props,key,{React,inh},output,isChild) {
         const {type,value,logic,parent,stack,expression,forData,tag,attrs,attrExpr,nodes} = node;
-        if(type=='text_node') {
+        if(type=='text_node') { // generation + realtime
             output.push('"'+value+'"');
             output.push(',');
             node.output = output.join('');
             return value; //return `"${value}"`;
-        } else if(type=='react') {
+        } else if(type=='react') { // generation + realtime
             output.push(RCR)
             output.push('"'+tag+'"')
+            output.push(',')
+            output.push('p')
             const rProps = {...attrs,key};
             Object.keys(attrExpr).forEach( attrName => {
                 rProps[attrName] = applyExpression(attrExpr[attrName],_props,attrName);
@@ -1549,22 +1562,24 @@ module.exports = function (Twig) {
                     return createChilds(nodes,rProps,key,{React,inh},output);
                 })
             }
-            if(logic=="IF" || (logic=="ELSEIF" && !parent.skip)) {
-                delete parent.skip;
-                if(applyExpression(stack,_props)) {
-                    parent.skip = true;
-                    return createChilds(nodes,_props,key,{React,inh},output);
+            if(output.noOutput) {
+                if(logic=="IF" || (logic=="ELSEIF" && !parent.skip)) { // realtime
+                    delete parent.skip;
+                    if(applyExpression(stack,_props)) {
+                        parent.skip = true;
+                        return createChilds(nodes,_props,key,{React,inh},[]);
+                    }
                 }
+                if(logic == "ELSE") { // realtime
+                    if(!parent.skip) {
+                        const res = createChilds(nodes,_props,key,{React,inh},[]);
+                        return res;
+                    }
+                    else delete parent.skip;
+                }        
             }
-            if(logic == "ELSE") {
-                if(!parent.skip) {
-                    const res = createChilds(nodes,_props,key,{React,inh},output);
-                    //output.push(',');
-                    return res;
-                }
-                else delete parent.skip;
-            }
-            if(logic == "BLOCK") {
+
+            if(logic == "BLOCK") { // generation + realtime
                 const res = inh && inh.child && inh.child[node.block] ? createChilds(inh.child[node.block].nodes,_props,key,{React,inh},output) 
                     : createChilds(nodes,_props,key,{React,inh},output);
                 node.output = output.join('');
@@ -1573,21 +1588,59 @@ module.exports = function (Twig) {
             }
         } else if(type=='EXPR') {
             return applyExpression(stack,_props);
-        } 
+        }
+        if(!output.noOutput && type=='LOGIC' && (logic=="IF" || logic=="ELSEIF" || logic == "ELSE") ) { // generation
+            if(logic == "IF" ) {
+                if(parent.ifElseStrBuild) {
+                    afterNode(output,parent);
+                    output.push(',');
+                }
+                parent.ifElseStrBuild = ['[{elem:'];
+            }
+            if( logic=="ELSEIF") {
+                parent.ifElseStrBuild.push(',{elem:');
+            }
+            if( logic=="IF" || logic=="ELSEIF") {
+                if(nodes.length>1) parent.ifElseStrBuild.push('R.c(R.Fragment,null,');
+                createChilds(nodes,_props,key,{React,inh},parent.ifElseStrBuild);
+                if(nodes.length>1) parent.ifElseStrBuild.push(')');
+                parent.ifElseStrBuild.push(`,cond:p => p.${expression}}`)
+            }
+            if(logic == "ELSE") {
+
+                if(parent.ifElseStrBuild) {
+                    parent.ifElseStrBuild.push(',{elem:');
+                    createChilds(nodes,_props,key,{React,inh},parent.ifElseStrBuild);
+                    parent.ifElseStrBuild.push(',cond: p => true}')
+                    afterNode(output,parent);
+                    output.push(',');
+                }
+                // output.push('[]')
+            }
+        }
+
         return null;
     }
     function nodesToComponent(tree,opt) {
         const {nodes} = tree;
         if(!nodes||!nodes.length) return _props => null
-        const output = [];
+        const noOutput = [];
+        noOutput.noOutput = true;
         const ReactCmp = nodes.length > 1 ?
          // `React.createElement('heading',null${createChilds(nodes)}` :
-         _props => opt.React.createElement(opt.React.Fragment,null,createChilds(nodes,_props,null,opt,[])) :
-         _props => nodeToEl(nodes[0],_props,null,opt,[]);
+         _props => opt.React.createElement(opt.React.Fragment,null,createChilds(nodes,_props,null,opt,noOutput)) :
+         _props => afterNode(output,nodes[0],nodeToEl(nodes[0],_props,null,opt,noOutput));
+        const output = [];
         const strGenCmp = nodes.length > 1 ?
          // `React.createElement('heading',null${createChilds(nodes)}` :
-         _props => { output.push('React.createElement(React.Fragment,null'); createChilds(nodes,_props,null,opt,output); output.push(')') } :
-         _props => nodeToEl(nodes[0],_props,null,opt,output);
+         _props => { output.push('p => R.c(R.Fragment,null,'); createChilds(nodes,_props,null,opt,output); output.push(')') } :
+         _props => { 
+            output.push('p => ');
+            nodeToEl(nodes[0],_props,null,opt,output)
+            output.pop()
+            afterNode(output,nodes[0]);
+            afterNode(output,tree);
+        }
          strGenCmp({}); // to fill output
          return {ReactCmp,cmpString:output.join('')}
     }
