@@ -532,7 +532,10 @@ module.exports = function (Twig) {
                 // Parse expression
                 var output = [];
 
-                context.nodeInContext.block = token.block;
+                const path = context.nodeInContext.path+= `(${token.block})`;
+                const blockPath = path.match(/\(.+?\)/g).map( n => n.slice(1,-1)).join('.');
+                context.nodeInContext.block = blockPath;
+                this.blocks[blockPath] = context.nodeInContext;
                 return Twig.parseAsync.call(this, token.output, context)
                             .then(function(o) {
                                 output.push(o);
@@ -540,7 +543,7 @@ module.exports = function (Twig) {
                             }).then( function() {
                                 return {
                                     chain: false,
-                                    output: output.map(o => o.reactOutput).join('')
+                                    output: output
                                 }
                             });
 
@@ -677,6 +680,7 @@ module.exports = function (Twig) {
             },
             parse: function (token, context, chain) {
                 context.nodeInContext.expression = token.expression;
+                this.isExtend = true;
                 return '';
                 var template,
                     that = this,

@@ -779,7 +779,7 @@ module.exports = function (Twig) {
     Twig.parse = function (tokens, context, allow_async) {
         var that = this,
             output = [],
-            tree = context.nodeInContext || {isExtend:false,path:'ROOT',nodes:[]},
+            tree = context.nodeInContext || {path:'ROOT',nodes:[]},
             // Store any error that might be thrown by the promise chain.
             err = null,
 
@@ -1473,13 +1473,19 @@ module.exports = function (Twig) {
         });
     };
 
-    function createChilds(nodes,_props,key,React) {
+    function createChilds(nodes,_props,key,{React,inh},output,isReactChild) {
         if(nodes.length > 1) {
             // return `,[${nodes.map(b => nodeToEl(b)).join(', ')}]`
-            return nodes.map(b => nodeToEl(b,_props,key,React))
+            if(isReactChild) output.push(',')
+            const resNodes = nodes.map(b => nodeToEl(b,_props,key,{React,inh},output))
+            output.pop();
+            return resNodes;
         } else if(nodes.length==1) {
             // return ',' + nodeToEl(nodes[0])
-            return nodeToEl(nodes[0],_props,key,React)
+            if(isReactChild) output.push(',')
+            const resEl = nodeToEl(nodes[0],_props,key,{React,inh},output)
+            output.pop();
+            return resEl;
         } else {
             // return '';
         }
@@ -1507,15 +1513,27 @@ module.exports = function (Twig) {
         } 
         return res[attrName];
     }
-    function nodeToEl(node,_props,key,React) {
+    //const RCR = 'React.createElement('
+    const RCR = 'R.c('
+    function nodeToEl(node,_props,key,{React,inh},output,isChild) {
         const {type,value,logic,parent,stack,expression,forData,tag,attrs,attrExpr,nodes} = node;
-        if(type=='text_node') return value; //return `"${value}"`;
-        else if(type=='react') {
+        if(type=='text_node') {
+            output.push('"'+value+'"');
+            output.push(',');
+            node.output = output.join('');
+            return value; //return `"${value}"`;
+        } else if(type=='react') {
+            output.push(RCR)
+            output.push('"'+tag+'"')
             const rProps = {...attrs,key};
             Object.keys(attrExpr).forEach( attrName => {
                 rProps[attrName] = applyExpression(attrExpr[attrName],_props,attrName);
             })
-            const chlds = createChilds(nodes,_props,key,React);
+            const chlds = createChilds(nodes,_props,key,{React,inh},output,true);
+            output.push(')');
+            output.push(',');
+            node.output = output.join('');
+
             return !chlds || chlds.constructor!=Array ? 
                 React.createElement(tag,rProps,chlds) :
                 React.createElement.apply(React,[tag,rProps,...chlds]);
@@ -1528,41 +1546,58 @@ module.exports = function (Twig) {
                             ..._props,
                             [value_var]:obj
                         };
-                    return createChilds(nodes,rProps,key,React);
+                    return createChilds(nodes,rProps,key,{React,inh},output);
                 })
             }
             if(logic=="IF" || (logic=="ELSEIF" && !parent.skip)) {
                 delete parent.skip;
                 if(applyExpression(stack,_props)) {
                     parent.skip = true;
-                    return createChilds(nodes,_props,key,React);
+                    return createChilds(nodes,_props,key,{React,inh},output);
                 }
             }
             if(logic == "ELSE") {
-                if(!parent.skip) return createChilds(nodes,_props,key,React)
+                if(!parent.skip) {
+                    const res = createChilds(nodes,_props,key,{React,inh},output);
+                    //output.push(',');
+                    return res;
+                }
                 else delete parent.skip;
+            }
+            if(logic == "BLOCK") {
+                const res = inh && inh.child && inh.child[node.block] ? createChilds(inh.child[node.block].nodes,_props,key,{React,inh},output) 
+                    : createChilds(nodes,_props,key,{React,inh},output);
+                node.output = output.join('');
+                output.push(',');
+                return res;
             }
         } else if(type=='EXPR') {
             return applyExpression(stack,_props);
         } 
         return null;
     }
-    function nodesToComponent(nodes,React) {
+    function nodesToComponent(tree,opt) {
+        const {nodes} = tree;
         if(!nodes||!nodes.length) return _props => null
-
-        return nodes.length > 1 ?
+        const output = [];
+        const ReactCmp = nodes.length > 1 ?
          // `React.createElement('heading',null${createChilds(nodes)}` :
-         _props => React.createElement(React.Fragment,null,createChilds(nodes,_props,null,React)) :
-         _props => nodeToEl(nodes[0],_props,null,React);
+         _props => opt.React.createElement(opt.React.Fragment,null,createChilds(nodes,_props,null,opt,[])) :
+         _props => nodeToEl(nodes[0],_props,null,opt,[]);
+        const strGenCmp = nodes.length > 1 ?
+         // `React.createElement('heading',null${createChilds(nodes)}` :
+         _props => { output.push('React.createElement(React.Fragment,null'); createChilds(nodes,_props,null,opt,output); output.push(')') } :
+         _props => nodeToEl(nodes[0],_props,null,opt,output);
+         strGenCmp({}); // to fill output
+         return {ReactCmp,cmpString:output.join('')}
     }
 
-    Twig.Template.prototype.getReactComp = function (context, params, allow_async) {
-        const {React} = context;
-        delete context.React;
-        const {tree } = this.render(context, params, allow_async),
-            Component = nodesToComponent(tree.nodes, React);
-        Component.tree = tree;
-        return Component;
+    Twig.Template.prototype.getReactComp = function (contextAndOpt, params, allow_async) {
+
+        const {tree } = this.render(contextAndOpt, params, allow_async);
+        const res = nodesToComponent(tree, contextAndOpt);
+        res.tree = tree;
+        return res;
     };
 
     Twig.Template.prototype.importFile = function(file) {
