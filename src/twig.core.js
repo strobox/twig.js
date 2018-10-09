@@ -1723,7 +1723,7 @@ module.exports = function (Twig) {
              _props => opt.React.createElement(opt.React.Fragment,null,createChilds(nodes,_props,null,opt,noOutput)) :
              _props => nodeToEl(nodes[0],_props,null,opt,noOutput);
 
-        const cmpString = isExtend ? '' : nodesToSting(nodes,tree,opt)
+        const cmpString = /* isExtend ? '' : */ nodesToSting(nodes,tree,opt)
         const blocksStr = this.blocks && this.blocks.length ? genBlocksMap(this.blocks,opt) : null;
 
         return {ReactCmp,cmpString,blocksStr}
