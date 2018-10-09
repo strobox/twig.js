@@ -1481,12 +1481,18 @@ module.exports = function (Twig) {
             });
         });
     };
-    function afterNode(output,node,res) {
-        if(node.ifElseStrBuild) {
-            Array.prototype.push.apply(output, node.ifElseStrBuild)
-            output.push(',{elem:null,cond: p=>true }].find( c => !!c.cond(p)).elem')
-            delete node.ifElseStrBuild;
+    function closeIfElse(output,node,onParentEnd) {
+        Array.prototype.push.apply(output, node.ifElseStrBuild)
+        output.push(',{elem:null,cond: p=>true }].find( c => !!c.cond(p)).elem')
+        if(!onParentEnd || node.parent!=node) { // not on ROOT end (reverse of onParentEnd && node.parent==node)
+            output.push(',');
         }
+        delete node.ifElseStrBuild;
+    }
+    function afterNode(output,node,res) {
+        if(node.parent && node.parent.ifElseStrBuild && node.parent.nodes[node.parent.nodes.length-1]==node) {
+            closeIfElse(output,node.parent,true);
+        } 
         return res;
     }
 
@@ -1541,6 +1547,9 @@ module.exports = function (Twig) {
     const RCR = 'R.c('
     function nodeToEl(node,_props,key,{React,inh,inc,skipSub},output,loopOutput) {
         const {type,value,logic,parent,stack,expression,forData,tag,attrs,attrExpr,attrWithExpr,nodes} = node;
+        if(!output.noOutput && parent && type!='LOGIC' && parent.ifElseStrBuild) {
+            closeIfElse(output,parent);
+        }
         if(type=='text_node') { // generation + realtime
             output.push('"'+value+'"');
             output.push(',');
@@ -1618,7 +1627,7 @@ module.exports = function (Twig) {
                 }
 
             } else {
-                output.push(node.expr_value);
+                output.push('p.'+node.expr_value);
             }
             output.push(',')
             if(output.noOutput) return applyExpression(stack,_props);
@@ -1626,9 +1635,8 @@ module.exports = function (Twig) {
         if(!output.noOutput && type=='LOGIC' && (logic=="IF" || logic=="ELSEIF" || logic == "ELSE") ) { // generation
             if(logic == "IF" ) {
                 if(parent.ifElseStrBuild) {
-                    afterNode(output,parent);
-                    output.push(',');
-                }
+                    closeIfElse(output,parent);
+                    }
                 parent.ifElseStrBuild = ['[{elem:'];
             }
             if( logic=="ELSEIF") {
@@ -1646,7 +1654,7 @@ module.exports = function (Twig) {
                     parent.ifElseStrBuild.push(',{elem:');
                     createChilds(nodes,_props,key,{React,inh,inc,skipSub},parent.ifElseStrBuild);
                     parent.ifElseStrBuild.push(',cond: p => true}')
-                    afterNode(output,parent);
+                    closeIfElse(output,parent);
                     output.push(',');
                 }
                 // output.push('[]')
@@ -1696,11 +1704,12 @@ module.exports = function (Twig) {
              // `React.createElement('heading',null${createChilds(nodes)}` :
              () => { output.push('R.c(R.F,null,'); createChilds(nodes,{},null,opt,output); output.push(')') } :
              () => { 
-                nodeToEl(nodes[0],{},null,opt,output)
-                output.pop()
-                afterNode(output,nodes[0]);
-                afterNode(output,tree);
-        }
+                nodeToEl(nodes[0],{},null,opt,output);
+                if(!tree.ifElseStrBuild) output.pop()
+                else {
+                    afterNode(output,nodes[0]);
+                }
+            }
         strGenCmp({}); // to fill output = []
         return output.join('');
     }
