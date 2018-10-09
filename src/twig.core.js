@@ -996,6 +996,7 @@ module.exports = function (Twig) {
                             type:"EXPR",
                             parent:tree._focusedNode,
                             path:tree._focusedNode.path+'[EXPR]',
+                            expr_value: token.value,
                             stack: token.stack
                         })
                     }
@@ -1484,17 +1485,17 @@ module.exports = function (Twig) {
         return res;
     }
 
-    function createChilds(nodes,_props,key,{React,inh},output,isReactChild) {
+    function createChilds(nodes,_props,key,{React,inh,inc,skipSub},output,isReactChild,loopOutput) {
         if(nodes.length > 1) {
             // return `,[${nodes.map(b => afterNode(output,b,nodeToEl(b))).join(', ')}]`
             if(isReactChild) output.push(',')
-            const resNodes = nodes.map(b => afterNode(output,b,nodeToEl(b,_props,key,{React,inh},output)))
+            const resNodes = nodes.map(b => afterNode(output,b,nodeToEl(b,_props,key,{React,inh,inc,skipSub},output,loopOutput)))
             output.pop();
             return resNodes;
         } else if(nodes.length==1) {
             // return ',' + afterNode(output,nodes[0],nodeToEl(nodes[0]))
             if(isReactChild) output.push(',')
-            const resEl = afterNode(output,nodes[0],nodeToEl(nodes[0],_props,key,{React,inh},output))
+            const resEl = afterNode(output,nodes[0],nodeToEl(nodes[0],_props,key,{React,inh,inc,skipSub},output,loopOutput))
             output.pop();
             return resEl;
         } else {
@@ -1526,7 +1527,7 @@ module.exports = function (Twig) {
     }
     //const RCR = 'React.createElement('
     const RCR = 'R.c('
-    function nodeToEl(node,_props,key,{React,inh},output,isChild) {
+    function nodeToEl(node,_props,key,{React,inh,inc,skipSub},output,loopOutput) {
         const {type,value,logic,parent,stack,expression,forData,tag,attrs,attrExpr,nodes} = node;
         if(type=='text_node') { // generation + realtime
             output.push('"'+value+'"');
@@ -1537,12 +1538,12 @@ module.exports = function (Twig) {
             output.push(RCR)
             output.push('"'+tag+'"')
             output.push(',')
-            output.push('p')
+            output.push(loopOutput ? '{key}' : 'null')
             const rProps = {...attrs,key};
             Object.keys(attrExpr).forEach( attrName => {
                 rProps[attrName] = applyExpression(attrExpr[attrName],_props,attrName);
             })
-            const chlds = createChilds(nodes,_props,key,{React,inh},output,true);
+            const chlds = createChilds(nodes,_props,key,{React,inh,inc,skipSub},output,true);
             output.push(')');
             output.push(',');
             node.output = output.join('');
@@ -1551,43 +1552,55 @@ module.exports = function (Twig) {
                 React.createElement(tag,rProps,chlds) :
                 React.createElement.apply(React,[tag,rProps,...chlds]);
         } else if(type=='LOGIC') {
-            if(logic=="FOR" && expression && expression[0] && _props[expression[0].value] ) {
-                const {key_var,value_var} = forData;
-                return _props[expression[0].value].map( (obj,idx) => {
-                    const key = key_var?obj[key_var]:idx,
-                        rProps = {
-                            ..._props,
-                            [value_var]:obj
-                        };
-                    return createChilds(nodes,rProps,key,{React,inh},output);
-                })
-            }
             if(output.noOutput) {
+                if(logic=="FOR" && expression && expression[0] && _props[expression[0].value] ) { // realtime
+
+                    return _props[expression[0].value].map( (obj,idx) => {
+                        const key = key_var?obj[key_var]:idx,
+                            rProps = {
+                                ..._props,
+                                [value_var]:obj
+                            };
+                        return createChilds(nodes,rProps,key,{React,inh,inc,skipSub},output);
+                    })
+                }
                 if(logic=="IF" || (logic=="ELSEIF" && !parent.skip)) { // realtime
                     delete parent.skip;
                     if(applyExpression(stack,_props)) {
                         parent.skip = true;
-                        return createChilds(nodes,_props,key,{React,inh},[]);
+                        return createChilds(nodes,_props,key,{React,inh,inc,skipSub},[]);
                     }
                 }
                 if(logic == "ELSE") { // realtime
                     if(!parent.skip) {
-                        const res = createChilds(nodes,_props,key,{React,inh},[]);
+                        const res = createChilds(nodes,_props,key,{React,inh,inc,skipSub},[]);
                         return res;
                     }
                     else delete parent.skip;
                 }        
             }
 
-            if(logic == "BLOCK") { // generation + realtime
-                const res = inh && inh.child && inh.child[node.block] ? createChilds(inh.child[node.block].nodes,_props,key,{React,inh},output) 
-                    : createChilds(nodes,_props,key,{React,inh},output);
+            if(logic == "BLOCK" && !skipSub) { // generation + realtime
+                const res = inh && inh.child && inh.child[node.block] ? createChilds(inh.child[node.block].nodes,_props,key,{React,inh,inc,skipSub},output) 
+                    : createChilds(nodes,_props,key,{React,inh,inc,skipSub},output);
                 node.output = output.join('');
                 output.push(',');
                 return res;
             }
         } else if(type=='EXPR') {
-            return applyExpression(stack,_props);
+            if(node.expr_value=='parent()') {
+                let chBlock = node.parent;
+                for ( ; chBlock.logic!='BLOCK' && chBlock.parent ; chBlock = chBlock.parent ) {
+                }
+                if(chBlock.logic=='BLOCK' && inh.parent[chBlock.block] ) {
+                    createChilds(inh.parent[chBlock.block].nodes,_props,key,{React,inh,inc,skipSub:true},output)
+                }
+
+            } else {
+                output.push(node.expr_value);
+            }
+            output.push(',')
+            if(output.noOutput) return applyExpression(stack,_props);
         }
         if(!output.noOutput && type=='LOGIC' && (logic=="IF" || logic=="ELSEIF" || logic == "ELSE") ) { // generation
             if(logic == "IF" ) {
@@ -1602,7 +1615,7 @@ module.exports = function (Twig) {
             }
             if( logic=="IF" || logic=="ELSEIF") {
                 if(nodes.length>1) parent.ifElseStrBuild.push('R.c(R.Fragment,null,');
-                createChilds(nodes,_props,key,{React,inh},parent.ifElseStrBuild);
+                createChilds(nodes,_props,key,{React,inh,inc,skipSub},parent.ifElseStrBuild);
                 if(nodes.length>1) parent.ifElseStrBuild.push(')');
                 parent.ifElseStrBuild.push(`,cond:p => p.${expression}}`)
             }
@@ -1610,13 +1623,32 @@ module.exports = function (Twig) {
 
                 if(parent.ifElseStrBuild) {
                     parent.ifElseStrBuild.push(',{elem:');
-                    createChilds(nodes,_props,key,{React,inh},parent.ifElseStrBuild);
+                    createChilds(nodes,_props,key,{React,inh,inc,skipSub},parent.ifElseStrBuild);
                     parent.ifElseStrBuild.push(',cond: p => true}')
                     afterNode(output,parent);
                     output.push(',');
                 }
                 // output.push('[]')
             }
+        }
+        if(!output.noOutput && logic=="INCLUDE") { // generation
+            const tplName = expression.replace(/['"]/g,'');
+            if(inc && inc[tplName]) {
+                output.push(inc[tplName].getReactComp({React}).cmpString);
+                output.push(',');
+            }
+        }
+        if(!output.noOutput && logic=="FOR") { // generation
+            const {key_var,value_var} = forData, iterable = expression[0].value;
+            output.push(`!!p.${iterable} && p.${iterable}.map( (${value_var},idx) => {`);
+            output.push(` const key = ${value_var}.${key_var} || idx;`);
+            output.push('const res = ');
+            if(nodes.length>1) output.push('R.c(R.Fragment,null,');
+            createChilds(nodes,_props,key,{React,inh,inc,skipSub},output,false,true);
+            if(nodes.length>1) output.push(')');
+            output.push('; return res;})');
+            output.push(',');                   
+            
         }
 
         return null;
@@ -1633,9 +1665,8 @@ module.exports = function (Twig) {
         const output = [];
         const strGenCmp = nodes.length > 1 ?
          // `React.createElement('heading',null${createChilds(nodes)}` :
-         _props => { output.push('p => R.c(R.Fragment,null,'); createChilds(nodes,_props,null,opt,output); output.push(')') } :
+         _props => { output.push('R.c(R.Fragment,null,'); createChilds(nodes,_props,null,opt,output); output.push(')') } :
          _props => { 
-            output.push('p => ');
             nodeToEl(nodes[0],_props,null,opt,output)
             output.pop()
             afterNode(output,nodes[0]);

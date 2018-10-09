@@ -1231,7 +1231,7 @@ module.exports = function (Twig) {
         Twig.log.trace("Twig.expression.compile: ", "Final output is", output);
 
         raw_token.stack = output;
-        delete raw_token.value;
+        //delete raw_token.value;
 
         return raw_token;
     };
