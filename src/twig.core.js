@@ -825,9 +825,11 @@ module.exports = function (Twig) {
 
                     const regTag = /([^<>]*)<(\/?)(\w+)([^<]*)/g;
                     let result, afterTagName, attrPart, tagCnt, textCnt, propsRes,
-                        openTagCnt = 0, wasAttrExpr = 0,  regTxt, token_value = token.value, wasMatch = false;
+                        openTagCnt = 0, wasAttrExpr = 0,  regTxt, token_value = token.value,
+                        wasOnAttr = false, wasMatch = false;
 
                     if(_onAttrExpr) {
+                        wasOnAttr = true;
                         let tknTest;
                         if(tknTest = token_value.match(/^" (\w+)="$/)){ // / id="/
                             token_value = token_value.slice(tknTest[0].length);
@@ -900,6 +902,7 @@ module.exports = function (Twig) {
                             nextElObj.path+= result[3];
                             nextElObj.type = 'react';
                             nextElObj.attrExpr = {};
+                            nextElObj.attrWithExpr = {};
                             nextElObj.attrs = {};
                             if(attrPart) {
                                 attrPart= " " + attrPart; // for fist tag match expression
@@ -939,7 +942,7 @@ module.exports = function (Twig) {
  
  
                     }
-                    if(!wasMatch && token.value.trim().length) 
+                    if(!wasMatch && !wasOnAttr && token.value.trim().length) 
                         tree._focusedNode.nodes.push( {type:"text_node",value:tnSantize(token.value)})
 
                     if(!wasAttrExpr && token.value.indexOf("</")>0) {
@@ -990,6 +993,7 @@ module.exports = function (Twig) {
                     const firstExpr = token.stack[token.stack.length-1];
                     if(_onAttrExpr && tree._focusedNode.nextAttr) {
                         tree._focusedNode.attrExpr[tree._focusedNode.nextAttr] = token.stack;
+                        tree._focusedNode.attrWithExpr[tree._focusedNode.nextAttr] = token.value;
                         delete tree._focusedNode.nextAttr;
                     } else {
                         tree._focusedNode.nodes.push({
@@ -1527,9 +1531,16 @@ module.exports = function (Twig) {
         return res[attrName];
     }
     //const RCR = 'React.createElement('
+    function stringifyProps(props,output,isStatic) {
+        for( let pk in props) {
+            output.push(pk + ':');
+            output.push(isStatic ? '"' +props[pk] + '"' : ('p.'+props[pk]));
+            output.push(',');
+        }
+    }
     const RCR = 'R.c('
     function nodeToEl(node,_props,key,{React,inh,inc,skipSub},output,loopOutput) {
-        const {type,value,logic,parent,stack,expression,forData,tag,attrs,attrExpr,nodes} = node;
+        const {type,value,logic,parent,stack,expression,forData,tag,attrs,attrExpr,attrWithExpr,nodes} = node;
         if(type=='text_node') { // generation + realtime
             output.push('"'+value+'"');
             output.push(',');
@@ -1539,7 +1550,12 @@ module.exports = function (Twig) {
             output.push(RCR)
             output.push('"'+tag+'"')
             output.push(',')
-            output.push(loopOutput ? '{key}' : 'null')
+            const propsOut = ['{'];
+            const staticProps = stringifyProps(attrs,propsOut,true);
+            const exprProps = stringifyProps(attrWithExpr,propsOut);
+            propsOut.pop();
+            const propsStr = propsOut.length > 1 ? propsOut.join('')+'}' : 'null';
+            output.push(loopOutput ? `Object.assign({key},${propsStr})` : propsStr)
             const rProps = {...attrs,key};
             Object.keys(attrExpr).forEach( attrName => {
                 rProps[attrName] = applyExpression(attrExpr[attrName],_props,attrName);
@@ -1708,7 +1724,6 @@ module.exports = function (Twig) {
 
         const {tree } = this.render(contextAndOpt, params, allow_async);
         const res = this.nodesToComponent(tree, contextAndOpt,this.isExtend);
-        console.log(this);
         res.tree = tree;
         return res;
     };
