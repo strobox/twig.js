@@ -683,7 +683,7 @@ module.exports = function (Twig) {
             },
             parse: function (token, context, chain) {
                 context.nodeInContext.expression = token.expression;
-                this.isExtend = true;
+                this.isExtend = token.expression;
                 return '';
                 var template,
                     that = this,
@@ -792,7 +792,11 @@ module.exports = function (Twig) {
             parse: function logicTypeInclude(token, context, chain) {
                 // Resolve filename
                 // context.nodeInContext.stack = token.stack;
-                context.nodeInContext.expression = token.expression;
+                const filePath = token.expression.trim();
+                const inclAlias = filePath.replace(/['".]/g,'').replace(/[\/\\]/g,'_');
+                context.nodeInContext.inclAlias = inclAlias;
+                context.nodeInContext.expression = filePath;
+                this.includes[inclAlias] = filePath;
                 return '';
                 var innerContext = token.only ? {} : Twig.ChildContext(context),
                     ignoreMissing = token.ignoreMissing,

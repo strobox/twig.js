@@ -1006,7 +1006,6 @@ module.exports = function (Twig) {
         })
         .then(function() {
             //output = Twig.output.call(that, output);
-            console.log(tree);
             is_async = false;
             delete tree._focusedNode;
             return {originalOutput:output,tree};
@@ -1350,6 +1349,7 @@ module.exports = function (Twig) {
         var data = params.data,
             id = params.id,
             blocks = params.blocks,
+            includes = {},
             macros = params.macros || {},
             base = params.base,
             path = params.path,
@@ -1402,6 +1402,7 @@ module.exports = function (Twig) {
     Twig.Template.prototype.reset = function(blocks) {
         Twig.log.debug("Twig.Template.reset", "Reseting template " + this.id);
         this.blocks = {};
+        this.includes = {};
         this.importedBlocks = [];
         this.originalBlockTokens = {};
         this.child = {
@@ -1581,10 +1582,14 @@ module.exports = function (Twig) {
             }
 
             if(logic == "BLOCK" && !skipSub) { // generation + realtime
-                const res = inh && inh.child && inh.child[node.block] ? createChilds(inh.child[node.block].nodes,_props,key,{React,inh,inc,skipSub},output) 
-                    : createChilds(nodes,_props,key,{React,inh,inc,skipSub},output);
-                node.output = output.join('');
+                const blockOutput = [];
+                if(nodes.length>1) blockOutput.push('R.c(R.F,null,');
+                const res = inh && inh.child && inh.child[node.block] ? createChilds(inh.child[node.block].nodes,_props,key,{React,inh,inc,skipSub},blockOutput) 
+                    : createChilds(nodes,_props,key,{React,inh,inc,skipSub},blockOutput);
+                    if(nodes.length>1) blockOutput.push(')');
+                output.push('p && p.twig_blocks && p.twig_blocks["'+node.block+'"] ? (p.twig_blocks["'+node.block+'"])(p,self_blocks) : ('+blockOutput.join('')+')');
                 output.push(',');
+
                 return res;
             }
         } else if(type=='EXPR') {
@@ -1592,8 +1597,8 @@ module.exports = function (Twig) {
                 let chBlock = node.parent;
                 for ( ; chBlock.logic!='BLOCK' && chBlock.parent ; chBlock = chBlock.parent ) {
                 }
-                if(chBlock.logic=='BLOCK' && inh.parent[chBlock.block] ) {
-                    createChilds(inh.parent[chBlock.block].nodes,_props,key,{React,inh,inc,skipSub:true},output)
+                if(chBlock.logic=='BLOCK' ) {
+                    output.push('self_blocks["'+chBlock.block+'"]()')
                 }
 
             } else {
@@ -1614,7 +1619,7 @@ module.exports = function (Twig) {
                 parent.ifElseStrBuild.push(',{elem:');
             }
             if( logic=="IF" || logic=="ELSEIF") {
-                if(nodes.length>1) parent.ifElseStrBuild.push('R.c(R.Fragment,null,');
+                if(nodes.length>1) parent.ifElseStrBuild.push('R.c(R.F15,null,');
                 createChilds(nodes,_props,key,{React,inh,inc,skipSub},parent.ifElseStrBuild);
                 if(nodes.length>1) parent.ifElseStrBuild.push(')');
                 parent.ifElseStrBuild.push(`,cond:p => p.${expression}}`)
@@ -1632,18 +1637,17 @@ module.exports = function (Twig) {
             }
         }
         if(!output.noOutput && logic=="INCLUDE") { // generation
-            const tplName = expression.replace(/['"]/g,'');
-            if(inc && inc[tplName]) {
-                output.push(inc[tplName].getReactComp({React}).cmpString);
-                output.push(',');
-            }
+            const tplAlias = node.inclAlias;
+            output.push(tplAlias+'(p)');
+            output.push(',');
+            
         }
         if(!output.noOutput && logic=="FOR") { // generation
             const {key_var,value_var} = forData, iterable = expression[0].value;
             output.push(`!!p.${iterable} && p.${iterable}.map( (${value_var},idx) => {`);
             output.push(` const key = ${value_var}.${key_var} || idx;`);
             output.push('const res = ');
-            if(nodes.length>1) output.push('R.c(R.Fragment,null,');
+            if(nodes.length>1) output.push('R.c(R.F,null,');
             createChilds(nodes,_props,key,{React,inh,inc,skipSub},output,false,true);
             if(nodes.length>1) output.push(')');
             output.push('; return res;})');
@@ -1653,33 +1657,58 @@ module.exports = function (Twig) {
 
         return null;
     }
-    function nodesToComponent(tree,opt) {
+    function genBlocksMap(blocks,opt) {
+        let res = ['{'];
+        Object.keys(blocks).forEach( bn => {
+            res.push('"')
+            res.push(bn)
+            res.push('":')
+            res.push('(bp,self_blocks) => ')
+            if(blocks[bn].nodes.length>1) res.push('R.c(R.F,null,');
+            res.push('' + nodesToSting(blocks[bn].nodes,blocks[bn],Object.assign({skipSub:true},opt)));
+            if(blocks[bn].nodes.length>1) res.push(')');
+            res.push(',')
+        })
+        res.pop();
+        res.push('}');
+        return res.join('');
+    }
+    function nodesToSting(nodes,tree,opt) {
+        const output = [];
+
+        const strGenCmp = nodes.length > 1 ?
+             // `React.createElement('heading',null${createChilds(nodes)}` :
+             () => { output.push('R.c(R.F,null,'); createChilds(nodes,{},null,opt,output); output.push(')') } :
+             () => { 
+                nodeToEl(nodes[0],{},null,opt,output)
+                output.pop()
+                afterNode(output,nodes[0]);
+                afterNode(output,tree);
+        }
+        strGenCmp({}); // to fill output = []
+        return output.join('');
+    }
+    Twig.Template.prototype.nodesToComponent = function(tree,opt,isExtend) {
         const {nodes} = tree;
         if(!nodes||!nodes.length) return _props => null
         const noOutput = [];
         noOutput.noOutput = true;
         const ReactCmp = nodes.length > 1 ?
-         // `React.createElement('heading',null${createChilds(nodes)}` :
-         _props => opt.React.createElement(opt.React.Fragment,null,createChilds(nodes,_props,null,opt,noOutput)) :
-         _props => afterNode(output,nodes[0],nodeToEl(nodes[0],_props,null,opt,noOutput));
-        const output = [];
-        const strGenCmp = nodes.length > 1 ?
-         // `React.createElement('heading',null${createChilds(nodes)}` :
-         _props => { output.push('R.c(R.Fragment,null,'); createChilds(nodes,_props,null,opt,output); output.push(')') } :
-         _props => { 
-            nodeToEl(nodes[0],_props,null,opt,output)
-            output.pop()
-            afterNode(output,nodes[0]);
-            afterNode(output,tree);
-        }
-         strGenCmp({}); // to fill output
-         return {ReactCmp,cmpString:output.join('')}
+             // `React.createElement('heading',null${createChilds(nodes)}` :
+             _props => opt.React.createElement(opt.React.Fragment,null,createChilds(nodes,_props,null,opt,noOutput)) :
+             _props => nodeToEl(nodes[0],_props,null,opt,noOutput);
+
+        const cmpString = isExtend ? '' : nodesToSting(nodes,tree,opt)
+        const blocksStr = this.blocks && this.blocks.length ? genBlocksMap(this.blocks,opt) : null;
+
+        return {ReactCmp,cmpString,blocksStr}
     }
 
     Twig.Template.prototype.getReactComp = function (contextAndOpt, params, allow_async) {
 
         const {tree } = this.render(contextAndOpt, params, allow_async);
-        const res = nodesToComponent(tree, contextAndOpt);
+        const res = this.nodesToComponent(tree, contextAndOpt,this.isExtend);
+        console.log(this);
         res.tree = tree;
         return res;
     };
