@@ -776,6 +776,13 @@ module.exports = function (Twig) {
      *
      * @return {string} The parsed template.
      */
+    function finishCplxAttr(obj) {
+        if(!obj.lastCplxAtrr) return;
+        if(obj.attrWithExpr[obj.lastCplxAtrr.tag]) {
+            console.warn('Attribute will be overriden!',obj.lastCplxAtrr.tag);
+        }
+        obj.attrWithExpr[obj.lastCplxAtrr.tag] = obj.lastCplxAtrr;
+    }
     Twig.parse = function (tokens, context, allow_async) {
         var that = this,
             output = [],
@@ -813,7 +820,7 @@ module.exports = function (Twig) {
         function tnSantize(t) {
             return t.replace(/^[\r\n]+\s*/,"").replace(/\s*[\r\n]+\s*$/,"").replace(/[\r\n]+/g,"\n")
         }
-        let  _prevOpenTags = [], _onAttrWithExp;
+        let  _prevOpenTags = [];
         promise = Twig.async.forEach(tokens, function parseToken(token) {
             Twig.log.debug("Twig.parse: ", "Parsing token: ", token);
 
@@ -826,33 +833,57 @@ module.exports = function (Twig) {
                     // (1,2: any str without > < ) till open < or (3: possible close tag)
                     // (4: \w+) - tag name; (5: all rest string) till next tag /*open or close*/ ) 
                     const regTag = /([^<>]*)>?([^<>]*)<(\/?)(\w+)([^<]*)/g;
-                    let result, afterTagName, attrPart, tagCnt, textCnt, propsRes,
-                        openTagCnt = 0, wasAttrWithExp = 0,  regTxt, token_value = token.value,
-                        wasOnAttr = false, wasMatch = false;
+                    let result, afterTagName, textCnt, propsRes,
+                        openTagCnt = 0, token_value = token.value,
+                        wasMatch = false;
 
-                    /* if(_onAttrWithExp) {
-                        wasOnAttr = true;
-                        let tknTest;
-                        if(tknTest = token_value.match(/^" (\w+)="$/)){ // / id="/
-                            token_value = token_value.slice(tknTest[0].length);
-                            tree._focusedNode.nextAttr = tknTest[1];
-                        } else if(tknTest = token_value.match(/^"\s*>/)) { // /    >/
-                            _onAttrWithExp = false;
-                            delete tree._focusedNode.nextAttr;
-                            regTxt = token_value.match(/>([\s\S]*?)</);
-
-                            if(regTxt && regTxt[1]) { // Partially DUPLICATE 287h23j
-                                tree._focusedNode.nodes.push( {type:"text_node",value:tnSantize(regTxt[1])})
-                                token_value = token_value.slice(regTxt[0].length);
-                            }
-                        } else {
-                            _onAttrWithExp = false;
-                        }
-
-                        //break;
-                    } */
                     console.log('<---',token.value,'--->');
                     // responsible for tag (react els) createion, text nodes, and mutliple attributes in inner match
+
+                    function parsePropsAttrs(attrPart, whole, obj) {
+                        if(!attrPart) return;
+                        attrPart= " " + attrPart; // for fist tag match expression
+                        // extractAllPlaint attrs
+                        const attrRe = /( (([\w-]+)=['"])(.+?)['"])/g
+                        while((propsRes = attrRe.exec(attrPart)) !== null) {
+                           const propName = propsRes[3] == "class" ? "className" : propsRes[3];
+                           obj.attrs[propName] = propsRes[4];
+                          
+                        }
+                        attrPart = attrPart.slice(1); // remove previously added space " "
+                        var cplxReStart = /([\w-]+)="([^"]*)$/, cplxReEnd = /^((?!=").)*(?=")/;
+                        var cplxStart = attrPart.match(cplxReStart), cplxEnd = attrPart.match(cplxReEnd);
+                        if(!whole) {
+                            if(cplxEnd) {
+                                if(!obj.lastCplxAtrr)
+                                    console.error('Unexpected',cplxEnd,obj.lastCplxAtrr);
+                                else {
+                                    if(cplxEnd[1]) {
+                                        obj.lastCplxAtrr.items.push({type:'text',value:cplxEnd[0]});
+                                    }
+                                    console.log('>> Saved cplx attr on end',obj.lastCplxAtrr);
+                                    finishCplxAttr(obj);
+                                    delete obj.lastCplxAtrr;
+                                }
+                            } else if(obj.lastCplxAtrr && !cplxEnd) {
+                                console.error('Unexpected lastCplxAtrr w/o end')
+                            } 
+                            if(cplxStart) {
+                                if(obj.lastCplxAtrr) {
+                                    console.log('>> Saved cplx attr before new',obj.lastCplxAtrr);
+                                    finishCplxAttr(obj);
+                                }
+                                obj.lastCplxAtrr = {
+                                    tag: cplxStart[1],
+                                    items: cplxStart[2] ? [ {type:'text',value:cplxStart[2]}] : []
+                                };
+
+                            }
+                        } else if(cplxStart || cplxEnd) {
+                            console.error('Unecpected Markup',attrPart,cplxStart,cplxEnd);
+                        }
+                    }
+
                     while((result = regTag.exec(token_value)) !== null) {
                         wasMatch = true;
                         const res0wsp = result[0], res0 = res0wsp.trim();
@@ -861,10 +892,17 @@ module.exports = function (Twig) {
                         const res3 = result[3];
                         const res4wsp = result[4], res4 = res4wsp.trim();
 
-                        console.info('res0 ',res0);
+                        propsRes = "";
+                        textCnt = "";
+
+
+                        //console.log('res0 ',res0);
+
                         if(_prevOpenTags.length && "</"==res0.slice(0,2) && _prevOpenTags[_prevOpenTags.length-1] == res4) {  // closing tag
                                 _prevOpenTags.pop();
                                 openTagCnt--;
+                                finishCplxAttr(tree._focusedNode);
+                                delete tree._focusedNode.lastCplxAtrr;
                                 tree._focusedNode = tree._focusedNode.parent;
                                 if(result[5] && result[5].slice(1).trim().length) { // Partially DUPLICATE 287h23j (right after close tag)
                                     tree._focusedNode.nodes.push( {type:"text_node",value:tnSantize(result[5].slice(1))})
@@ -879,116 +917,76 @@ module.exports = function (Twig) {
                         if(res2wsp || res1wsp) {
 
                             if(res2wsp) { // than res1 is rest attribute part of opened tag, res2 is rest text
-                                // parsePropsAttrs(res1);
+                                parsePropsAttrs(res1,false,tree._focusedNode);
                                 restText = res2;
                             } /* else { */ // else res1 is rest text
                             
                             if(restText) { // Partially DUPLICATE 287h23j (after exprr in text)
-                                tree._focusedNode.nodes.push( {type:"text_node",value:tnSantize(res2)})
+                                tree._focusedNode.nodes.push( {type:"text_node",value:tnSantize(res1)})
                             }
                         }
-
-                        attrPart = "";
-                        propsRes = "";
-                        textCnt = "";
-                        props = "";
-                        tagCnt = 0;
-
 
                         if(res3=="/") {
                             _prevOpenTags.pop();
                             openTagCnt--;
+                            finishCplxAttr(tree._focusedNode);
+                            delete tree._focusedNode.lastCplxAtrr;
                             tree._focusedNode = tree._focusedNode.parent;
                             console.log('Close tag and continue')
                                 continue;
                         }
                         afterTagName = result[5] ? result[5].trim() : null;
 
-                        let ATTR_W_EXPR = false;
                         let WHOLE = false;
                         let WHOLE_SELF_CLOSE = false;
-                        let STRANGE = false;
-                        console.log('atg: ',afterTagName);
+                        //console.log('atg: ',afterTagName);
                         const cltagp = afterTagName.indexOf('>');
+                        let attrPart = "";
                         if(cltagp>=0) { // have full tag, and maybee text after it
-                            let WHOLE = true;
+                            WHOLE = true;
                             if(cltagp!=afterTagName.length-1) { // yes, have text
                                 textCnt = afterTagName.slice(cltagp+1);
                             }
                             if(afterTagName[cltagp-1]=="/") {
                                 WHOLE_SELF_CLOSE = true;
                             }
-                            attrPart = afterTagName.slice(0, cltagp - (WHOLE_SELF_CLOSE?1:0));
+                            attrPart = afterTagName.slice(0, cltagp - (WHOLE_SELF_CLOSE?1:0)).trim();
                         } else {
-                            ATTR_W_EXPR = true;
                             attrPart = afterTagName;
                         }
-                        if(ATTR_W_EXPR && attrPart.match(/"/g).length>1) {
-                            ATTR_W_EXPR = false;
-                            STRANGE = true;
-                        }
-                        console.log('attr: ',attrPart);
+
+                        //console.log('attr: ',attrPart);
 
                         nextElObj = {parent:tree._focusedNode,path:tree._focusedNode.path+'['+tree._focusedNode.nodes.length+']/',nodes:[]};
                         tree._focusedNode.nodes.push(nextElObj);
-                        if(STRANGE) {
-                            //alert('Strange!')
-                            console.warn('strange markup '+token.value);
-                            nextElObj.type = "strange";
-                            nextElObj.debug = token.value;
-                            continue;
-                        } else {
-                            nextElObj.tag = res4;
-                            nextElObj.path+= res4;
-                            nextElObj.type = 'react';
-                            nextElObj.attrExpr = {};
-                            nextElObj.attrWithExpr = {};
-                            nextElObj.attrs = {};
-                            if(attrPart) {
-                                attrPart= " " + attrPart; // for fist tag match expression
-                               const regTag = /( (([\w-]+)=['"])(.+?)['"])/g
-                               while((propsRes = regTag.exec(attrPart)) !== null) {
-                                    tagCnt++;
-                                    const propName = propsRes[3] == "class" ? "className" : propsRes[3];
-                                    props += propName + ':"' + propsRes[4] + '",';
-                                    nextElObj.attrs[propName] = propsRes[4];
-                                   
-                               }
-                               console.log('props: ', props);
-                               if(props.length) props = props.slice(0,-1); // remove (,) at end 
-                               if(ATTR_W_EXPR) {
-                                  wasAttrWithExp++;
-                                  _onAttrWithExp = true;
-                                  const t = attrPart.match(/(\w+)="$/);
-                                  // const nextAttrName = t[1];
-                                  //nextElObj.nextAttr = nextAttrName;
-                               }
-                            } else {
-                            }
-                            if(textCnt) { // Partially DUPLICATE 287h23j
-                                nextElObj.nodes.push( {type:"text_node",value:tnSantize(textCnt)})
-                            }
-                            
-                            if(!WHOLE_SELF_CLOSE) {
-                                tree._focusedNode = nextElObj;
-                                _prevOpenTags.push(res4);
-                                openTagCnt++;
-                            }
+
+                        nextElObj.tag = res4;
+                        nextElObj.path+= res4;
+                        nextElObj.type = 'react';
+                        nextElObj.attrWithExpr = {};
+                        nextElObj.attrs = {};
+                        if(attrPart) {
+                           parsePropsAttrs(attrPart,WHOLE,nextElObj);
+                        } 
+                        if(textCnt) { // Partially DUPLICATE 287h23j
+                            nextElObj.nodes.push( {type:"text_node",value:tnSantize(textCnt)})
+                        }
+                        
+                        if(!WHOLE_SELF_CLOSE) {
+                            tree._focusedNode = nextElObj;
+                            _prevOpenTags.push(res4);
+                            openTagCnt++;
                         }
  
- 
                     }
-                    if(!wasMatch && !wasOnAttr && token.value.trim().length) 
-                        tree._focusedNode.nodes.push( {type:"text_node",value:tnSantize(token.value)})
-
-                    if(!wasAttrWithExp && token.value.indexOf("</")>0) {
-                       while(openTagCnt-- > 0) {
-                           tree._focusedNode = tree._focusedNode.parent;
-                       } 
+                    const token_value_trim = token_value.trim();
+                    if(!wasMatch && token_value_trim.length) {
+                        if(token_value_trim.slice(-1).match(/[">]/)) {
+                            parsePropsAttrs(token_value_trim,false,tree._focusedNode);
+                        }
+                        else
+                            tree._focusedNode.nodes.push( {type:"text_node",value:tnSantize(token.value)})
                     }
-                    if(wasAttrWithExp>1) {
-                        console.warn('Something wrong!')
-                    }                    
 
                     
                     break;
@@ -1027,10 +1025,8 @@ module.exports = function (Twig) {
                     Twig.log.debug("Twig.parse: ", "Output token: ", token.stack);
                     // Parse the given expression in the given context
                     const firstExpr = token.stack[token.stack.length-1];
-                    if(_onAttrWithExp && tree._focusedNode.nextAttr) {
-                        tree._focusedNode.attrExpr[tree._focusedNode.nextAttr] = token.stack;
-                        tree._focusedNode.attrWithExpr[tree._focusedNode.nextAttr] = token.value;
-                        delete tree._focusedNode.nextAttr;
+                    if(tree._focusedNode.lastCplxAtrr) {
+                        tree._focusedNode.lastCplxAtrr.items.push({type:'expr',value:token.value});
                     } else {
                         tree._focusedNode.nodes.push({
                             type:"EXPR",
@@ -1580,9 +1576,21 @@ module.exports = function (Twig) {
             output.push(',');
         }
     }
+    function stringifyExprProps(props,output) {
+        for( let pk in props) {
+            output.push(pk + ':');
+            for (var i = 0; i < props[pk].items.length; i++) {
+                const exprOrText = props[pk].items[i];
+                output.push(exprOrText.type == 'text' ? '"' + exprOrText.value + '"' : ('(p.'+exprOrText.value+"||'')"));
+                output.push("+ ' ' + ");
+            }
+            if(props[pk].items.length>0) output.pop();
+            output.push(',');
+        }
+    }
     const RCR = 'R.c('
     function nodeToEl(node,_props,key,{React,inh,inc,skipSub},output,loopOutput) {
-        const {type,value,logic,parent,stack,expression,forData,tag,attrs,attrExpr,attrWithExpr,nodes} = node;
+        const {type,value,logic,parent,stack,expression,forData,tag,attrs,/* attrExpr, */attrWithExpr,nodes} = node;
         if(!output.noOutput && parent && type!='LOGIC' && parent.ifElseStrBuild) {
             closeIfElse(output,parent);
         }
@@ -1597,14 +1605,14 @@ module.exports = function (Twig) {
             output.push(',')
             const propsOut = ['{'];
             const staticProps = stringifyProps(attrs,propsOut,true);
-            const exprProps = stringifyProps(attrWithExpr,propsOut);
+            const exprProps = stringifyExprProps(attrWithExpr,propsOut);
             propsOut.pop();
             const propsStr = propsOut.length > 1 ? propsOut.join('')+'}' : 'null';
             output.push(loopOutput ? `Object.assign({key},${propsStr})` : propsStr)
             const rProps = {...attrs,key};
-            Object.keys(attrExpr).forEach( attrName => {
+            /* Object.keys(attrExpr).forEach( attrName => {
                 rProps[attrName] = applyExpression(attrExpr[attrName],_props,attrName);
-            })
+            }) */
             const chlds = createChilds(nodes,_props,key,{React,inh,inc,skipSub},output,true);
             output.push(')');
             output.push(',');
