@@ -822,7 +822,9 @@ module.exports = function (Twig) {
                     //output.push(Twig.filters.raw(token.value));
                     let nextElObj, props;
                     const nextExprAttr = token.value 
-
+                    // ? - possible
+                    // (1: any str without > < ) till open < or (2: possible close tag)
+                    // (3: \w+) - tag name; (4: all rest string) till next tag /*open or close*/ ) 
                     const regTag = /([^<>]*)<(\/?)(\w+)([^<]*)/g;
                     let result, afterTagName, attrPart, tagCnt, textCnt, propsRes,
                         openTagCnt = 0, wasAttrExpr = 0,  regTxt, token_value = token.value,
@@ -849,6 +851,7 @@ module.exports = function (Twig) {
 
                         //break;
                     }
+                    // responsible for tag (react els) createion, text nodes, and mutliple attributes in inner match
                     while((result = regTag.exec(token_value)) !== null) {
                         wasMatch = true;
                         if(result[1] && result[1].trim().length) { // Partially DUPLICATE 287h23j (after exprr in text)
@@ -927,12 +930,8 @@ module.exports = function (Twig) {
                                 nextElObj.nodes.push( {type:"text_node",value:tnSantize(textCnt)})
                             }
                             
-                            if(tgtype.WHOLE_SELF_CLOSE) {
-                            } else {
-                                tree._focusedNode = nextElObj;
-                                
-                            }
                             if(!tgtype.WHOLE_SELF_CLOSE) {
+                                tree._focusedNode = nextElObj;
                                 _prevOpenTags.push(result[3]);
                             }
                             if(!tgtype.WHOLE_SELF_CLOSE && !tgtype.ATTR_EXPR) { // </ + div == </div (closed tag)
