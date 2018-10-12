@@ -7,6 +7,9 @@ module.exports = function (Twig) {
     Twig.trace = false;
     Twig.debug = false;
 
+    Twig.mytrace = false;
+    Twig.mydebug = false;
+
     // Default caching to true for the improved performance it offers
     Twig.cache = true;
 
@@ -163,6 +166,11 @@ module.exports = function (Twig) {
     Twig.log = {
         trace: function() {if (Twig.trace && console) {console.log(Array.prototype.slice.call(arguments));}},
         debug: function() {if (Twig.debug && console) {console.log(Array.prototype.slice.call(arguments));}}
+    };
+
+    Twig.mylog = {
+        trace: function() {if (Twig.mytrace && console) {console.log.apply(console,arguments);}},
+        debug: function() {if (Twig.mydebug && console) {console.log.apply(console,arguments);}}
     };
 
 
@@ -822,7 +830,7 @@ module.exports = function (Twig) {
         }
         let  _prevOpenTags = [];
         promise = Twig.async.forEach(tokens, function parseToken(token) {
-            Twig.log.debug("Twig.parse: ", "Parsing token: ", token);
+            Twig.mylog.debug("Twig.parse: ", "Parsing token: ", token);
 
             switch (token.type) {
                 case Twig.token.type.raw:
@@ -837,7 +845,7 @@ module.exports = function (Twig) {
                         openTagCnt = 0, token_value = token.value,
                         wasMatch = false;
 
-                    console.log('<---',token.value,'--->');
+                    Twig.mylog.trace('<---',token.value,'--->');
                     // responsible for tag (react els) createion, text nodes, and mutliple attributes in inner match
 
                     function parsePropsAttrs(attrPart, whole, obj) {
@@ -856,21 +864,21 @@ module.exports = function (Twig) {
                         if(!whole) {
                             if(cplxEnd) {
                                 if(!obj.lastCplxAtrr)
-                                    console.error('Unexpected',cplxEnd,obj.lastCplxAtrr);
+                                    console.warn('Unexpected',cplxEnd,obj.lastCplxAtrr);
                                 else {
                                     if(cplxEnd[1]) {
                                         obj.lastCplxAtrr.items.push({type:'text',value:cplxEnd[0]});
                                     }
-                                    console.log('>> Saved cplx attr on end',obj.lastCplxAtrr);
+                                    Twig.mylog.debug('>> Saved cplx attr on end',obj.lastCplxAtrr);
                                     finishCplxAttr(obj);
                                     delete obj.lastCplxAtrr;
                                 }
                             } else if(obj.lastCplxAtrr && !cplxEnd) {
-                                console.error('Unexpected lastCplxAtrr w/o end')
+                                console.warn('Unexpected lastCplxAtrr w/o end')
                             } 
                             if(cplxStart) {
                                 if(obj.lastCplxAtrr) {
-                                    console.log('>> Saved cplx attr before new',obj.lastCplxAtrr);
+                                    Twig.mylog.debug('>> Saved cplx attr before new',obj.lastCplxAtrr);
                                     finishCplxAttr(obj);
                                 }
                                 obj.lastCplxAtrr = {
@@ -880,7 +888,7 @@ module.exports = function (Twig) {
 
                             }
                         } else if(cplxStart || cplxEnd) {
-                            console.error('Unecpected Markup',attrPart,cplxStart,cplxEnd);
+                            console.warn('Unecpected Markup',attrPart,cplxStart,cplxEnd);
                         }
                     }
 
@@ -896,7 +904,7 @@ module.exports = function (Twig) {
                         textCnt = "";
 
 
-                        //console.log('res0 ',res0);
+                        //Twig.mylog.debug('res0 ',res0);
 
                         if(_prevOpenTags.length && "</"==res0.slice(0,2) && _prevOpenTags[_prevOpenTags.length-1] == res4) {  // closing tag
                                 _prevOpenTags.pop();
@@ -908,7 +916,7 @@ module.exports = function (Twig) {
                                     tree._focusedNode.nodes.push( {type:"text_node",value:tnSantize(result[5].slice(1))})
 
                                 }
-                                console.log('Close tag and continue')
+                                Twig.mylog.debug('Close tag and continue')
                                 continue;
                         }
 
@@ -932,14 +940,14 @@ module.exports = function (Twig) {
                             finishCplxAttr(tree._focusedNode);
                             delete tree._focusedNode.lastCplxAtrr;
                             tree._focusedNode = tree._focusedNode.parent;
-                            console.log('Close tag and continue')
+                            Twig.mylog.trace('Close tag and continue')
                                 continue;
                         }
                         afterTagName = result[5] ? result[5].trim() : null;
 
                         let WHOLE = false;
                         let WHOLE_SELF_CLOSE = false;
-                        //console.log('atg: ',afterTagName);
+                        Twig.mylog.trace('atg: ',afterTagName);
                         const cltagp = afterTagName.indexOf('>');
                         let attrPart = "";
                         if(cltagp>=0) { // have full tag, and maybee text after it
@@ -955,7 +963,7 @@ module.exports = function (Twig) {
                             attrPart = afterTagName;
                         }
 
-                        //console.log('attr: ',attrPart);
+                        Twig.mylog.trace('attr: ',attrPart);
 
                         nextElObj = {parent:tree._focusedNode,path:tree._focusedNode.path+'['+tree._focusedNode.nodes.length+']/',nodes:[]};
                         tree._focusedNode.nodes.push(nextElObj);
@@ -1768,7 +1776,7 @@ module.exports = function (Twig) {
              _props => nodeToEl(nodes[0],_props,null,opt,noOutput);
 
         const cmpString = /* isExtend ? '' : */ nodesToSting(nodes,tree,opt)
-        const blocksStr = this.blocks && this.blocks.length ? genBlocksMap(this.blocks,opt) : null;
+        const blocksStr = this.blocks && Object.keys(this.blocks).length ? genBlocksMap(this.blocks,opt) : null;
 
         return {ReactCmp,cmpString,blocksStr}
     }
