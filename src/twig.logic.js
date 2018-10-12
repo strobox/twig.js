@@ -536,9 +536,9 @@ module.exports = function (Twig) {
                 var output = [];
 
                 const path = context.nodeInContext.path+= `(${token.block})`;
-                const blockPath = path.match(/\(.+?\)/g).map( n => n.slice(1,-1)).join('.');
-                context.nodeInContext.block = blockPath;
-                this.blocks[blockPath] = context.nodeInContext;
+                //const blockPath = path.match(/\(.+?\)/g).map( n => n.slice(1,-1)).join('.');
+                context.nodeInContext.block = token.block;
+                this.blocks[token.block] = context.nodeInContext;
                 return Twig.parseAsync.call(this, token.output, context)
                             .then(function(o) {
                                 output.push(o);
