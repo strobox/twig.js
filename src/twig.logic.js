@@ -793,7 +793,7 @@ module.exports = function (Twig) {
                 // Resolve filename
                 // context.nodeInContext.stack = token.stack;
                 const filePath = token.expression.trim();
-                const inclAlias = filePath.replace(/['".]/g,'').replace(/[\/\\]/g,'_');
+                const inclAlias = filePath.replace(/['".]/g,'').replace(/[\/\\-]/g,'_');
                 context.nodeInContext.inclAlias = inclAlias;
                 context.nodeInContext.expression = filePath;
                 this.includes[inclAlias] = filePath;

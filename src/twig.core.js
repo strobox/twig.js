@@ -938,14 +938,14 @@ module.exports = function (Twig) {
 
                         }
 
-                        if(res3=="/") {
+                        if(res3=="/"||res1.slice(-1)=="/") {
                             _prevOpenTags.pop();
                             openTagCnt--;
                             finishCplxAttr(tree._focusedNode);
                             delete tree._focusedNode.lastCplxAtrr;
                             tree._focusedNode = tree._focusedNode.parent;
                             Twig.mylog.trace('Close tag and continue')
-                                continue;
+                            if(res3=="/")   continue;
                         }
                         afterTagName = result[5] /* ? result[5].trim() : null */;
 
@@ -995,6 +995,14 @@ module.exports = function (Twig) {
                     if(!wasMatch && token_value_trim.length) {
                         if(token_value_trim.slice(-1).match(/[">]/) || token_value_trim[0]=='"') {
                             parsePropsAttrs(token_value_trim,false,tree._focusedNode);
+                            if(token_value.trim().slice(-2,-1)=="/" && token_value.indexOf("<")<0 ) { // for self close tag
+                                _prevOpenTags.pop();
+                                openTagCnt--;
+                                finishCplxAttr(tree._focusedNode);
+                                delete tree._focusedNode.lastCplxAtrr;
+                                tree._focusedNode = tree._focusedNode.parent;
+                            }
+
                         }
                         else
                             tnSantize(tree._focusedNode,token.value)
@@ -1525,9 +1533,10 @@ module.exports = function (Twig) {
             });
         });
     };
-    function closeIfElse(output,node,onParentEnd) {
+    function closeIfElse(output,node,onParentEnd,isElse) {
         Array.prototype.push.apply(output, node.ifElseStrBuild)
-        output.push(',{elem:null,cond: p=>true }].find( c => !!c.cond(p)).elem')
+        if(!isElse) output.push(',{elem:null,cond: p=>true }');
+        output.push('].find( c => !!c.cond(p)).elem')
         if(!onParentEnd || node.parent!=node) { // not on ROOT end (reverse of onParentEnd && node.parent==node)
             output.push(',');
         }
@@ -1699,7 +1708,7 @@ module.exports = function (Twig) {
                 parent.ifElseStrBuild.push(',{elem:');
             }
             if( logic=="IF" || logic=="ELSEIF") {
-                if(nodes.length>1) parent.ifElseStrBuild.push('R.c(R.F15,null,');
+                if(nodes.length>1) parent.ifElseStrBuild.push('R.c(R.F,null,');
                 createChilds(nodes,_props,key,{React,inh,inc,skipSub},parent.ifElseStrBuild);
                 if(nodes.length>1) parent.ifElseStrBuild.push(')');
                 parent.ifElseStrBuild.push(`,cond:p => p.${expression}}`)
@@ -1708,9 +1717,11 @@ module.exports = function (Twig) {
 
                 if(parent.ifElseStrBuild) {
                     parent.ifElseStrBuild.push(',{elem:');
+                    if(nodes.length>1) parent.ifElseStrBuild.push('R.c(R.F,null,');
                     createChilds(nodes,_props,key,{React,inh,inc,skipSub},parent.ifElseStrBuild);
+                    if(nodes.length>1) parent.ifElseStrBuild.push(')');
                     parent.ifElseStrBuild.push(',cond: p => true}')
-                    closeIfElse(output,parent);
+                    closeIfElse(output,parent,false,true);
                     //output.push(',');
                 }
                 // output.push('[]')
