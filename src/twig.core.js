@@ -825,8 +825,11 @@ module.exports = function (Twig) {
                 output.push(logic.output);
             }
         }
-        function tnSantize(t) {
-            return t.replace(/^[\r\n]+\s*/,"").replace(/\s*[\r\n]+\s*$/,"").replace(/[\r\n]+/g,"\n")
+        function tnSantize(obj,t) {
+            if(!t) return;
+            const value = t.replace(/^[\r\n]+\s*/,"").replace(/\s*[\r\n]+\s*$/,"").replace(/[\r\n]+/g,"\n");
+            if(!value) return;
+            obj.nodes.push( {type:"text_node",value})
         }
         let  _prevOpenTags = [];
         promise = Twig.async.forEach(tokens, function parseToken(token) {
@@ -912,8 +915,9 @@ module.exports = function (Twig) {
                                 finishCplxAttr(tree._focusedNode);
                                 delete tree._focusedNode.lastCplxAtrr;
                                 tree._focusedNode = tree._focusedNode.parent;
-                                if(result[5] && result[5].slice(1).trim().length) { // Partially DUPLICATE 287h23j (right after close tag)
-                                    tree._focusedNode.nodes.push( {type:"text_node",value:tnSantize(result[5].slice(1))})
+                                let textPart;
+                                if(result[5] && (textPart = result[5].slice(1).trim()).length) {
+                                    tnSantize(tree._focusedNode,textPart)
 
                                 }
                                 Twig.mylog.debug('Close tag and continue')
@@ -929,9 +933,9 @@ module.exports = function (Twig) {
                                 restText = res2;
                             } /* else { */ // else res1 is rest text
                             
-                            if(restText) { // Partially DUPLICATE 287h23j (after exprr in text)
-                                tree._focusedNode.nodes.push( {type:"text_node",value:tnSantize(res1)})
-                            }
+                            if(restText)
+                                tnSantize(tree._focusedNode,restText);
+
                         }
 
                         if(res3=="/") {
@@ -976,8 +980,8 @@ module.exports = function (Twig) {
                         if(attrPart) {
                            parsePropsAttrs(attrPart,WHOLE,nextElObj);
                         } 
-                        if(textCnt) { // Partially DUPLICATE 287h23j
-                            nextElObj.nodes.push( {type:"text_node",value:tnSantize(textCnt)})
+                        if(textCnt) {
+                            tnSantize(nextElObj,textCnt);
                         }
                         
                         if(!WHOLE_SELF_CLOSE) {
@@ -993,7 +997,7 @@ module.exports = function (Twig) {
                             parsePropsAttrs(token_value_trim,false,tree._focusedNode);
                         }
                         else
-                            tree._focusedNode.nodes.push( {type:"text_node",value:tnSantize(token.value)})
+                            tnSantize(tree._focusedNode,token.value)
                     }
 
                     
