@@ -943,7 +943,7 @@ module.exports = function (Twig) {
                             Twig.mylog.trace('Close tag and continue')
                                 continue;
                         }
-                        afterTagName = result[5] ? result[5].trim() : null;
+                        afterTagName = result[5] /* ? result[5].trim() : null */;
 
                         let WHOLE = false;
                         let WHOLE_SELF_CLOSE = false;
@@ -989,7 +989,7 @@ module.exports = function (Twig) {
                     }
                     const token_value_trim = token_value.trim();
                     if(!wasMatch && token_value_trim.length) {
-                        if(token_value_trim.slice(-1).match(/[">]/)) {
+                        if(token_value_trim.slice(-1).match(/[">]/) || token_value_trim[0]=='"') {
                             parsePropsAttrs(token_value_trim,false,tree._focusedNode);
                         }
                         else
@@ -1590,7 +1590,7 @@ module.exports = function (Twig) {
             for (var i = 0; i < props[pk].items.length; i++) {
                 const exprOrText = props[pk].items[i];
                 output.push(exprOrText.type == 'text' ? '"' + exprOrText.value + '"' : ('(p.'+exprOrText.value+"||'')"));
-                output.push("+ ' ' + ");
+                output.push(" + ");
             }
             if(props[pk].items.length>0) output.pop();
             output.push(',');
