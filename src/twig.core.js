@@ -885,7 +885,7 @@ module.exports = function (Twig) {
                                     finishCplxAttr(obj);
                                 }
                                 obj.lastCplxAtrr = {
-                                    tag: cplxStart[1],
+                                    tag: cplxStart[1] == 'class' ? 'className' : cplxStart[1],
                                     items: cplxStart[2] ? [ {type:'text',value:cplxStart[2]}] : []
                                 };
 
