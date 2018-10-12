@@ -1711,7 +1711,7 @@ module.exports = function (Twig) {
                     createChilds(nodes,_props,key,{React,inh,inc,skipSub},parent.ifElseStrBuild);
                     parent.ifElseStrBuild.push(',cond: p => true}')
                     closeIfElse(output,parent);
-                    output.push(',');
+                    //output.push(',');
                 }
                 // output.push('[]')
             }
