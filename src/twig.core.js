@@ -1729,7 +1729,16 @@ module.exports = function (Twig) {
         }
         if(!output.noOutput && logic=="INCLUDE") { // generation
             const tplAlias = node.inclAlias;
-            output.push(tplAlias+'(p)');
+            output.push(tplAlias);
+            if(node.withContext) {
+                if(node.withContext.match(/\s*\{/)) {
+                    output.push('('+node.withContext.replace(/(:\s*)([a-z_\$])/g,"$1p.$2")+')');
+                } else {
+                    output_push('(p.'+node.withContext+')');
+                }
+            } else {
+                output.push('(p)');
+            }
             output.push(',');
             
         }
