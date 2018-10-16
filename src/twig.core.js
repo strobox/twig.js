@@ -1535,8 +1535,8 @@ module.exports = function (Twig) {
     };
     function closeIfElse(output,node,onParentEnd,isElse) {
         Array.prototype.push.apply(output, node.ifElseStrBuild)
-        if(!isElse) output.push(',{elem:null,cond: p=>true }');
-        output.push('].find( c => !!c.cond(p)).elem')
+        if(!isElse) output.push(',{elem:()=>null,cond: p=>true }');
+        output.push('].find( c => !!c.cond(p)).elem(p)')
         if(!onParentEnd || node.parent!=node) { // not on ROOT end (reverse of onParentEnd && node.parent==node)
             output.push(',');
         }
@@ -1549,17 +1549,19 @@ module.exports = function (Twig) {
         return res;
     }
 
-    function createChilds(nodes,_props,key,{React,inh,inc,skipSub},output,isReactChild,loopOutput) {
+    function createChilds(nodes,_props,key,opts,output,isReactChild,loopOutput) {
+        const {React,inh} = opts;
+
         if(nodes.length > 1) {
             // return `,[${nodes.map(b => afterNode(output,b,nodeToEl(b))).join(', ')}]`
             if(isReactChild) output.push(',')
-            const resNodes = nodes.map(b => afterNode(output,b,nodeToEl(b,_props,key,{React,inh,inc,skipSub},output,loopOutput)))
+            const resNodes = nodes.map(b => afterNode(output,b,nodeToEl(b,_props,key,opts,output,loopOutput)))
             output.pop();
             return resNodes;
         } else if(nodes.length==1) {
             // return ',' + afterNode(output,nodes[0],nodeToEl(nodes[0]))
             if(isReactChild) output.push(',')
-            const resEl = afterNode(output,nodes[0],nodeToEl(nodes[0],_props,key,{React,inh,inc,skipSub},output,loopOutput))
+            const resEl = afterNode(output,nodes[0],nodeToEl(nodes[0],_props,key,opts,output,loopOutput))
             output.pop();
             return resEl;
         } else {
@@ -1592,41 +1594,56 @@ module.exports = function (Twig) {
     //const RCR = 'React.createElement('
     function stringifyProps(props,output,isStatic) {
         for( let pk in props) {
-            output.push(pk + ':');
+            output.push('"' + pk + '":');
             output.push(isStatic ? '"' +props[pk] + '"' : ('p.'+props[pk]));
             output.push(',');
         }
     }
-    function stringifyExprProps(props,output) {
+    function stringifyExprProps(props,output,opts) {
         for( let pk in props) {
-            output.push(pk + ':');
+            output.push('"' + pk + '":');
             for (var i = 0; i < props[pk].items.length; i++) {
                 const exprOrText = props[pk].items[i];
-                output.push(exprOrText.type == 'text' ? '"' + exprOrText.value + '"' : ('(p.'+exprOrText.value+"||'')"));
+                const notProps = opts.notProps && opts.notProps.indexOf(exprOrText.value.split('.')[0]) >= 0;
+                output.push(exprOrText.type == 'text' ? '"' + exprOrText.value + '"' : ((notProps?'(':'(p.')+exprOrText.value+"||'')"));
                 output.push(" + ");
             }
             if(props[pk].items.length>0) output.pop();
             output.push(',');
         }
     }
+    function htmlTagToPrimitive(tag) {
+        let p = 'primi.';
+        switch (tag) {
+            case 'a': p+='Touchabale'; break;
+            default: p+='View'
+        }
+        return p;
+    }
     const RCR = 'R.c('
-    function nodeToEl(node,_props,key,{React,inh,inc,skipSub},output,loopOutput) {
+    function nodeToEl(node,_props,key,opts,output,loopOutput) {
+        const {React,inh,skipSub,mapToPrimitives} = opts;
         const {type,value,logic,parent,stack,expression,forData,tag,attrs,/* attrExpr, */attrWithExpr,nodes} = node;
         if(!output.noOutput && parent && type!='LOGIC' && parent.ifElseStrBuild) {
             closeIfElse(output,parent);
         }
         if(type=='text_node') { // generation + realtime
-            output.push('"'+value+'"');
+            if(mapToPrimitives) {
+                output.push(RCR);
+                output.push('primi.Text,null,"'+value+'")');
+            } else {
+                output.push('"'+value+'"');
+            }
             output.push(',');
             node.output = output.join('');
             return value; //return `"${value}"`;
         } else if(type=='react') { // generation + realtime
             output.push(RCR)
-            output.push('"'+tag+'"')
+            output.push(mapToPrimitives?htmlTagToPrimitive(tag):'"'+tag+'"')
             output.push(',')
             const propsOut = ['{'];
             const staticProps = stringifyProps(attrs,propsOut,true);
-            const exprProps = stringifyExprProps(attrWithExpr,propsOut);
+            const exprProps = stringifyExprProps(attrWithExpr,propsOut,opts);
             propsOut.pop();
             const propsStr = propsOut.length > 1 ? propsOut.join('')+'}' : 'null';
             output.push(loopOutput ? `Object.assign({key},${propsStr})` : propsStr)
@@ -1634,7 +1651,7 @@ module.exports = function (Twig) {
             /* Object.keys(attrExpr).forEach( attrName => {
                 rProps[attrName] = applyExpression(attrExpr[attrName],_props,attrName);
             }) */
-            const chlds = createChilds(nodes,_props,key,{React,inh,inc,skipSub},output,true);
+            const chlds = createChilds(nodes,_props,key,opts,output,true);
             output.push(')');
             output.push(',');
             node.output = output.join('');
@@ -1652,19 +1669,19 @@ module.exports = function (Twig) {
                                 ..._props,
                                 [value_var]:obj
                             };
-                        return createChilds(nodes,rProps,key,{React,inh,inc,skipSub},output);
+                        return createChilds(nodes,rProps,key,opts,output);
                     })
                 }
                 if(logic=="IF" || (logic=="ELSEIF" && !parent.skip)) { // realtime
                     delete parent.skip;
                     if(applyExpression(stack,_props)) {
                         parent.skip = true;
-                        return createChilds(nodes,_props,key,{React,inh,inc,skipSub},[]);
+                        return createChilds(nodes,_props,key,opts,[]);
                     }
                 }
                 if(logic == "ELSE") { // realtime
                     if(!parent.skip) {
-                        const res = createChilds(nodes,_props,key,{React,inh,inc,skipSub},[]);
+                        const res = createChilds(nodes,_props,key,opts,[]);
                         return res;
                     }
                     else delete parent.skip;
@@ -1674,8 +1691,9 @@ module.exports = function (Twig) {
             if(logic == "BLOCK" && !skipSub) { // generation + realtime
                 const blockOutput = [];
                 if(nodes.length>1) blockOutput.push('R.c(R.F,null,');
-                const res = inh && inh.child && inh.child[node.block] ? createChilds(inh.child[node.block].nodes,_props,key,{React,inh,inc,skipSub},blockOutput) 
-                    : createChilds(nodes,_props,key,{React,inh,inc,skipSub},blockOutput);
+                const res = inh && inh.child && inh.child[node.block] ? createChilds(inh.child[node.block].nodes,_props,key,opts,blockOutput) 
+                    : createChilds(nodes,_props,key,opts,blockOutput);
+                    if(nodes.length==0) blockOutput.push('null');
                     if(nodes.length>1) blockOutput.push(')');
                 output.push('p && p.twig_blocks && p.twig_blocks["'+node.block+'"] ? (p.twig_blocks["'+node.block+'"])(p,self_blocks) : ('+blockOutput.join('')+')');
                 output.push(',');
@@ -1692,7 +1710,9 @@ module.exports = function (Twig) {
                 }
 
             } else {
-                output.push('p.'+node.expr_value);
+                const notProps = opts.notProps && opts.notProps.indexOf(node.expr_value.split('.')[0]) >= 0;
+
+                output.push( (notProps ? '':'p.')+node.expr_value);
             }
             output.push(',')
             if(output.noOutput) return applyExpression(stack,_props);
@@ -1702,23 +1722,23 @@ module.exports = function (Twig) {
                 if(parent.ifElseStrBuild) {
                     closeIfElse(output,parent);
                     }
-                parent.ifElseStrBuild = ['[{elem:'];
+                parent.ifElseStrBuild = ['[{elem: p=> '];
             }
             if( logic=="ELSEIF") {
-                parent.ifElseStrBuild.push(',{elem:');
+                parent.ifElseStrBuild.push(',{elem: p=> ');
             }
             if( logic=="IF" || logic=="ELSEIF") {
                 if(nodes.length>1) parent.ifElseStrBuild.push('R.c(R.F,null,');
-                createChilds(nodes,_props,key,{React,inh,inc,skipSub},parent.ifElseStrBuild);
+                createChilds(nodes,_props,key,opts,parent.ifElseStrBuild);
                 if(nodes.length>1) parent.ifElseStrBuild.push(')');
                 parent.ifElseStrBuild.push(`,cond:p => p.${expression}}`)
             }
             if(logic == "ELSE") {
 
                 if(parent.ifElseStrBuild) {
-                    parent.ifElseStrBuild.push(',{elem:');
+                    parent.ifElseStrBuild.push(',{elem: p=> ');
                     if(nodes.length>1) parent.ifElseStrBuild.push('R.c(R.F,null,');
-                    createChilds(nodes,_props,key,{React,inh,inc,skipSub},parent.ifElseStrBuild);
+                    createChilds(nodes,_props,key,opts,parent.ifElseStrBuild);
                     if(nodes.length>1) parent.ifElseStrBuild.push(')');
                     parent.ifElseStrBuild.push(',cond: p => true}')
                     closeIfElse(output,parent,false,true);
@@ -1745,11 +1765,21 @@ module.exports = function (Twig) {
         if(!output.noOutput && logic=="FOR") { // generation
             const {key_var,value_var} = forData, iterable = expression[0].value;
             output.push(`!!p.${iterable} && p.${iterable}.map( (${value_var},idx) => {`);
-            output.push(` const key = ${value_var}.${key_var} || idx;`);
+            if(key_var) output.push(` const key = ${value_var}.${key_var} || idx;`);
+            else output.push(` const key = idx;`);
+            if(opts.notProps) opts.notProps.push(value_var);
+            else opts.notProps = [value_var];
             output.push('const res = ');
             if(nodes.length>1) output.push('R.c(R.F,null,');
-            createChilds(nodes,_props,key,{React,inh,inc,skipSub},output,false,true);
+            createChilds(nodes,_props,key,opts,output,false,true);
             if(nodes.length>1) output.push(')');
+            if(opts.notProps) {
+                if(opts.notProps.length>1) {
+                    const idxp = opts.notProps.indexOf(value_var);
+                    opts.notProps.splice(idxp,1);
+                }
+                if(opts.notProps.length<2) delete opts.notProps;
+            }
             output.push('; return res;})');
             output.push(',');                   
             
@@ -1764,9 +1794,12 @@ module.exports = function (Twig) {
             res.push(bn)
             res.push('":')
             res.push('(bp,self_blocks) => ')
-            if(blocks[bn].nodes.length>1) res.push('R.c(R.F,null,');
-            res.push('' + nodesToSting(blocks[bn].nodes,blocks[bn],Object.assign({skipSub:true},opt)));
-            if(blocks[bn].nodes.length>1) res.push(')');
+            if(blocks[bn].nodes.length>0) {
+                if(blocks[bn].nodes.length>1) res.push('R.c(R.F,null,');
+                res.push('' + nodesToSting(blocks[bn].nodes,blocks[bn],Object.assign({skipSub:true},opt)));
+                if(blocks[bn].nodes.length>1) res.push(')');
+            } else 
+                res.push('null');
             res.push(',')
         })
         res.pop();
@@ -1808,7 +1841,7 @@ module.exports = function (Twig) {
     Twig.Template.prototype.getReactComp = function (contextAndOpt, params, allow_async) {
 
         const {tree } = this.render(contextAndOpt, params, allow_async);
-        const res = this.nodesToComponent(tree, contextAndOpt,this.isExtend);
+        const res = this.nodesToComponent(tree, Object.assign({},params,contextAndOpt),this.isExtend);
         res.tree = tree;
         return res;
     };
