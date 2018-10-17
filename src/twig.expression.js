@@ -862,7 +862,7 @@ module.exports = function (Twig) {
                     value;
 
                 return parseParams(this, token.params, context)
-                .then(function(params) {
+                .then(!Twig.doeval ? () => Twig.Promise.resolve('') : function(params) {
                     if (object === null || object === undefined) {
                         if (that.options.strict_variables) {
                             throw new Twig.Error("Can't access a key " + key + " on an null or undefined object.");
@@ -1262,7 +1262,6 @@ module.exports = function (Twig) {
         var stack = [],
             loop_token_fixups = [],
             binaryOperator = Twig.expression.type.operator.binary;
-        stack.jsres = "";
         return Twig.async.potentiallyAsync(this, allow_async, function() {
             return Twig.async.forEach(tokens, function expressionToken(token, index) {
                 var token_template = null,
@@ -1312,7 +1311,6 @@ module.exports = function (Twig) {
                 }
 
                 // Pop the final value off the stack
-                console.log(stack.jsres);
                 return stack.pop();
             });
         });
