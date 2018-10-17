@@ -792,6 +792,7 @@ module.exports = function (Twig) {
         obj.attrWithExpr[obj.lastCplxAtrr.tag] = obj.lastCplxAtrr;
     }
     Twig.parse = function (tokens, context, allow_async) {
+        context.jsexpr = "";
         var that = this,
             output = [],
             tree = context.nodeInContext || {path:'ROOT',nodes:[]},
@@ -1056,8 +1057,8 @@ module.exports = function (Twig) {
                             stack: token.stack
                         })
                     }
-                    //return Twig.expression.parseAsync.call(that, token.stack, context)
-                    //    .then(output_push);
+                    Twig.expression.parseAsync.call(that, token.stack, context)
+                        .then( o => console.log(o));
             }
         })
         .then(function() {
@@ -1754,7 +1755,7 @@ module.exports = function (Twig) {
                 if(node.withContext.match(/\s*\{/)) {
                     output.push('('+node.withContext.replace(/(:\s*)([a-z_\$])/g,"$1p.$2")+')');
                 } else {
-                    output_push('(p.'+node.withContext+')');
+                    output.push('(p.'+node.withContext+')');
                 }
             } else {
                 output.push('(p)');

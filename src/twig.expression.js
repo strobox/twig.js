@@ -114,10 +114,13 @@ module.exports = function (Twig) {
         },
         parse: {
             push: function(token, stack, context) {
-                stack.push(token);
+                stack.push({val:token});
             },
             push_value: function(token, stack, context) {
-                stack.push(token.value);
+                const isStr = token.type == "Twig.expression.type.string";
+                stack.push({
+                    val:token.value,
+                    gen:isStr ? `"${token.value}"` : token.value});
             }
         }
     };
@@ -151,19 +154,19 @@ module.exports = function (Twig) {
                 output.push(token);
             },
             parse: function(token, stack, context) {
-                var value = stack.pop();
+                var value = stack.pop().val;
 
                 return parseParams(this, token.params, context)
                 .then(function(params) {
                     var result = Twig.test(token.filter, value, params);
 
                     if (token.modifier == 'not') {
-                        stack.push(!result);
+                        stack.push({val:!result});
                     } else {
-                        stack.push(result);
+                        stack.push({val:result});
                     }
                 });
-            }
+            debugger;}
         },
         {
             type: Twig.expression.type.comma,
@@ -281,13 +284,13 @@ module.exports = function (Twig) {
             parse: function(token, stack, context) {
                 if (token.key) {
                     // handle ternary ':' operator
-                    stack.push(token);
+                    stack.push({val:token});
                 } else if (token.params) {
                     // handle "{(expression):value}"
                     return Twig.expression.parseAsync.call(this, token.params, context)
                     .then(function(key) {
                         token.key = key;
-                        stack.push(token);
+                        stack.push({val:token});
 
                         //If we're in a loop, we might need token.params later, especially in this form of "(expression):value"
                         if (!context.loop) {
@@ -331,7 +334,7 @@ module.exports = function (Twig) {
             },
             parse: function(token, stack, context) {
                 Twig.expression.operator.parse(token.value, stack);
-            }
+            debugger;}
         },
         {
             /**
@@ -470,8 +473,8 @@ module.exports = function (Twig) {
 
                 if (token.expression) {
                     return Twig.expression.parseAsync.call(this, token.params, context)
-                    .then(function(value) {
-                        stack.push(value);
+                    .then(function(res) {
+                        stack.push(res);
                     });
                 } else {
                     throw new Twig.Error("Unexpected subexpression end when token is not marked as an expression");
@@ -553,12 +556,12 @@ module.exports = function (Twig) {
                 if (token.expression) {
                     return Twig.expression.parseAsync.call(this, token.params, context)
                     .then(function(value) {
-                        stack.push(value);
+                        stack.push({val:value});
                     });
                 } else {
 
                     while (stack.length > 0) {
-                        value = stack.pop();
+                        value = stack.pop().val;
                         // Push values into the array until the start of the array
                         if (value && value.type && value.type == Twig.expression.type.parameter.start) {
                             array_ended = true;
@@ -571,9 +574,9 @@ module.exports = function (Twig) {
                         throw new Twig.Error("Expected end of parameter set.");
                     }
 
-                    stack.push(new_array);
+                    stack.push({val:new_array});
                 }
-            }
+            debugger;}
         },
         {
             type: Twig.expression.type.slice,
@@ -598,11 +601,11 @@ module.exports = function (Twig) {
                 output.push(token);
             },
             parse: function(token, stack, context) {
-                var input = stack.pop(),
+                var input = stack.pop().val,
                     params = token.params;
 
-                stack.push(Twig.filter.call(this, token.value, input, params));
-            }
+                stack.push({val:Twig}.filter.call(this, token.value, input, params));
+            debugger;}
         },
         {
             /**
@@ -640,7 +643,7 @@ module.exports = function (Twig) {
                     value = null;
 
                 while (stack.length > 0) {
-                    value = stack.pop();
+                    value = stack.pop().val;
                     // Push values into the array until the start of the array
                     if (value.type && value.type == Twig.expression.type.array.start) {
                         array_ended = true;
@@ -652,8 +655,8 @@ module.exports = function (Twig) {
                     throw new Twig.Error("Expected end of array.");
                 }
 
-                stack.push(new_array);
-            }
+                stack.push({val:new_array});
+            debugger;}
         },
         // Token that represents the start of a hash map '}'
         //
@@ -700,7 +703,7 @@ module.exports = function (Twig) {
                     value = null;
 
                 while (stack.length > 0) {
-                    token = stack.pop();
+                    token = stack.pop().val;
                     // Push values into the array until the start of the object
                     if (token && token.type && token.type === Twig.expression.type.object.start) {
                         object_ended = true;
@@ -731,8 +734,8 @@ module.exports = function (Twig) {
                     throw new Twig.Error("Unexpected end of object.");
                 }
 
-                stack.push(new_object);
-            }
+                stack.push({val:new_object});
+            debugger;}
         },
 
         // Token representing a filter
@@ -753,16 +756,16 @@ module.exports = function (Twig) {
             },
             parse: function(token, stack, context) {
                 var that = this,
-                    input = stack.pop();
+                    input = stack.pop().val;
 
                 return parseParams(this, token.params, context)
                 .then(function(params) {
                     return Twig.filter.call(that, token.value, input, params);
                 })
                 .then(function(value) {
-                    stack.push(value);
+                    stack.push({val:value});
                 });
-            }
+            debugger;}
         },
         {
             type: Twig.expression.type._function,
@@ -808,9 +811,9 @@ module.exports = function (Twig) {
                     return value;
                 })
                 .then(function(result) {
-                    stack.push(result);
+                    stack.push({val:result});
                 });
-            }
+            debugger;}
         },
 
         // Token representing a variable.
@@ -835,9 +838,9 @@ module.exports = function (Twig) {
                 // Get the variable from the context
                 return Twig.expression.resolveAsync.call(this, context[token.value], context)
                 .then(function(value) {
-                    stack.push(value);
+                    stack.push({val:value,gen:'p.'+token.value});
                 });
-            }
+            debugger;}
         },
         {
             type: Twig.expression.type.key.period,
@@ -854,7 +857,8 @@ module.exports = function (Twig) {
             parse: function(token, stack, context, next_token) {
                 var that = this,
                     key = token.key,
-                    object = stack.pop(),
+                    poped = stack.pop(),
+                    object = poped.val,
                     value;
 
                 return parseParams(this, token.params, context)
@@ -886,9 +890,9 @@ module.exports = function (Twig) {
                     return Twig.expression.resolveAsync.call(that, value, context, params, next_token, object);
                 })
                 .then(function(result) {
-                    stack.push(result);
+                    stack.push({val:result,gen:poped.gen+'.'+key});
                 });
-            }
+            debugger;}
         },
         {
             type: Twig.expression.type.key.brackets,
@@ -920,7 +924,7 @@ module.exports = function (Twig) {
                     return Twig.expression.parseAsync.call(that, token.stack, context);
                 })
                 .then(function(key) {
-                    object = stack.pop();
+                    object = stack.pop().val;
 
                     if (object === null || object === undefined) {
                         if (that.options.strict_variables) {
@@ -941,9 +945,9 @@ module.exports = function (Twig) {
                     return Twig.expression.resolveAsync.call(that, value, object, params, next_token);
                 })
                 .then(function(result) {
-                    stack.push(result);
+                    stack.push({val:result});
                 });
-            }
+            debugger;}
         },
         {
             /**
@@ -970,8 +974,8 @@ module.exports = function (Twig) {
                     Twig.expression.type.parameter.start]),
             compile: Twig.expression.fn.compile.push,
             parse: function(token, stack, context) {
-                stack.push(context);
-            }
+                stack.push({val:context});
+            debugger;}
         },
         {
             /**
@@ -1258,7 +1262,7 @@ module.exports = function (Twig) {
         var stack = [],
             loop_token_fixups = [],
             binaryOperator = Twig.expression.type.operator.binary;
-
+        stack.jsres = "";
         return Twig.async.potentiallyAsync(this, allow_async, function() {
             return Twig.async.forEach(tokens, function expressionToken(token, index) {
                 var token_template = null,
@@ -1308,6 +1312,7 @@ module.exports = function (Twig) {
                 }
 
                 // Pop the final value off the stack
+                console.log(stack.jsres);
                 return stack.pop();
             });
         });

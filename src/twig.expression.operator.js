@@ -149,16 +149,23 @@ module.exports = function (Twig) {
      * Returns the updated stack.
      */
     Twig.expression.operator.parse = function (operator, stack) {
+        var _fstack = stack;
+        stack = stack.map( obj => obj.val)
+
         Twig.log.trace("Twig.expression.operator.parse: ", "Handling ", operator);
         var a, b, c;
-
+        var _a, _b, _c;
+        var genStr;
         if (operator === '?') {
             c = stack.pop();
+            _c = _fstack.pop();
         }
 
         b = stack.pop();
+        _b = _fstack.pop();
         if (operator !== 'not') {
             a = stack.pop();
+            _a = _fstack.pop();
         }
 
         if (operator !== 'in' && operator !== 'not in') {
@@ -179,7 +186,12 @@ module.exports = function (Twig) {
                 b = new RegExp(reBody, reFlags);
             }
         }
-
+        function genOrVal(obj) {
+            return obj.gen || obj.val;
+        }
+        function genBin(_op) {
+            return genStr = '(' + genOrVal(_a) + (_op || operator) + genOrVal(_b) + ')';
+        }
         switch (operator) {
             case ':':
                 // Ignore
@@ -193,16 +205,16 @@ module.exports = function (Twig) {
                 }
 
                 if (a !== undefined && a !== null) {
-                    stack.push(a);
+                    _fstack.push({gen:genStr,val:a});
                 } else {
-                    stack.push(b);
+                    _fstack.push({gen:genStr,val:b});
                 }
                 break;
             case '?:':
                 if (Twig.lib.boolval(a)) {
-                    stack.push(a);
+                    _fstack.push({gen:genStr,val:a});
                 } else {
-                    stack.push(b);
+                    _fstack.push({gen:genStr,val:b});
                 }
                 break;
             case '?':
@@ -214,136 +226,146 @@ module.exports = function (Twig) {
                 }
 
                 if (Twig.lib.boolval(a)) {
-                    stack.push(b);
+                    _fstack.push({gen:genStr,val:b});
                 } else {
-                    stack.push(c);
+                    _fstack.push({gen:genStr,val:c});
                 }
                 break;
 
             case '+':
                 b = parseFloat(b);
                 a = parseFloat(a);
-                stack.push(a + b);
+                
+                _fstack.push({gen:genBin(),val:a + b});
                 break;
 
             case '-':
                 b = parseFloat(b);
                 a = parseFloat(a);
-                stack.push(a - b);
+                _fstack.push({gen:genBin(),val:a - b});
                 break;
 
             case '*':
                 b = parseFloat(b);
                 a = parseFloat(a);
-                stack.push(a * b);
+                _fstack.push({gen:genBin(),val:a * b});
                 break;
 
             case '/':
                 b = parseFloat(b);
                 a = parseFloat(a);
-                stack.push(a / b);
+                _fstack.push({gen:genBin(),val:a / b});
                 break;
 
-            case '//':
+            case '//': // TODO 
                 b = parseFloat(b);
                 a = parseFloat(a);
-                stack.push(Math.floor(a / b));
+                _fstack.push({gen:genStr,val:Math.floor(a / b)});
                 break;
 
             case '%':
                 b = parseFloat(b);
                 a = parseFloat(a);
-                stack.push(a % b);
+                _fstack.push({gen:genStr,val:a % b});
                 break;
 
             case '~':
-                stack.push( (a != null ? a.toString() : "")
-                          + (b != null ? b.toString() : "") );
+                genStr = ` [ ${genOrVal(_a)}||"",${genOrVal(_b)}||""].join('') `
+                _fstack.push({gen:genStr,val: (a != null ? a.toString() : "")
+                          + (b != null ? b.toString() : "") });
                 break;
 
             case 'not':
             case '!':
-                stack.push(!Twig.lib.boolval(b));
+                genStr = '!'+genOrVal(b);
+                _fstack.push({gen:genStr,val:!Twig.lib.boolval(b)});
                 break;
 
             case '<':
-                stack.push(a < b);
+                _fstack.push({gen:genBin(),val:a < b});
                 break;
 
             case '<=':
-                stack.push(a <= b);
+                _fstack.push({gen:genBin(),val:a <= b});
                 break;
 
             case '>':
-                stack.push(a > b);
+                _fstack.push({gen:genBin(),val:a > b});
                 break;
 
             case '>=':
-                stack.push(a >= b);
+                _fstack.push({gen:genBin(),val:a >= b});
                 break;
 
             case '===':
-                stack.push(a === b);
+                _fstack.push({gen:genBin(),val:a === b});
                 break;
 
             case '==':
-                stack.push(a == b);
+                _fstack.push({gen:genBin(),val:a == b});
                 break;
 
             case '!==':
-                stack.push(a !== b);
+                _fstack.push({gen:genBin(),val:a !== b});
                 break;
 
             case '!=':
-                stack.push(a != b);
+                _fstack.push({gen:genBin(),val:a != b});
                 break;
 
             case 'or':
-                stack.push(Twig.lib.boolval(a) || Twig.lib.boolval(b));
+                _fstack.push({gen:genBin('||'),val:Twig.lib.boolval(a) || Twig.lib.boolval(b)});
                 break;
 
             case 'b-or':
-                stack.push(a | b);
+                _fstack.push({gen:genBin('|'),val:a | b});
                 break;
 
             case 'b-xor':
-                stack.push(a ^ b);
+                _fstack.push({gen:genBin('^'),val:a ^ b});
                 break;
 
             case 'and':
-                stack.push(Twig.lib.boolval(a) && Twig.lib.boolval(b));
+                _fstack.push({gen:genBin('&&'),val:Twig.lib.boolval(a) && Twig.lib.boolval(b)});
                 break;
 
             case 'b-and':
-                stack.push(a & b);
+                _fstack.push({gen:genBin('&'),val:a & b});
                 break;
 
             case '**':
-                stack.push(Math.pow(a, b));
+                genStr = `Math.pow(${genOrVal(_a)}, ${genOrVal(_b)})`
+                _fstack.push({gen:genStr,val:Math.pow(a, b)});
                 break;
 
             case 'not in':
-                stack.push( !containment(a, b) );
+                genStr = `(false == ${genOrVal(_a)} in ${genOrVal(_b)})`
+                _fstack.push({gen:genStr,val: !containment(a, b) });
                 break;
 
             case 'in':
-                stack.push( containment(a, b) );
+                genStr = ` ${genOrVal(_a)} in ${genOrVal(_b)}`
+                _fstack.push({gen:genStr,val: containment(a, b) });
                 break;
 
             case 'matches':
-                stack.push( b.test(a) );
+                _fstack.push({gen:genStr,val: b.test(a) });
                 break;
 
             case 'starts with':
-                stack.push( a.indexOf(b) === 0 );
+                genStr = `(${genOrVal(_a)} && ${genOrVal(_a)}.indexOf(${genOrVal(_b)}) === 0 )`
+                _fstack.push({gen:genStr,val: a && a.indexOf(b) === 0 });
                 break;
 
             case 'ends with':
-                stack.push( a.indexOf(b, a.length - b.length) !== -1 );
+                genStr = `(${genOrVal(_a)} && ${genOrVal(_a)}.lastIndexOf(${genOrVal(_b)}) + ${genOrVal(_b)}.length == ${genOrVal(_a)}.length )`
+                _fstack.push({gen:genStr,val: a.indexOf(b, a.length - b.length) !== -1 });
                 break;
 
             case '..':
-                stack.push( Twig.functions.range(a, b) );
+                const f = genOrVal(_a), s = genOrVal(_b);
+                genStr = ` [...Array(Math.abs(${s} - ${f} +1)).keys()].map( n => ${f} + (${s}- ${f}>0 ? n: -n)) `
+                _fstack.push({gen:genStr,val: Twig.functions.range(a, b) });
                 break;
 
             default:
