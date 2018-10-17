@@ -1046,19 +1046,21 @@ module.exports = function (Twig) {
                     Twig.log.debug("Twig.parse: ", "Output token: ", token.stack);
                     // Parse the given expression in the given context
                     const firstExpr = token.stack[token.stack.length-1];
-                    if(tree._focusedNode.lastCplxAtrr) {
-                        tree._focusedNode.lastCplxAtrr.items.push({type:'expr',value:token.value});
-                    } else {
-                        tree._focusedNode.nodes.push({
-                            type:"EXPR",
-                            parent:tree._focusedNode,
-                            path:tree._focusedNode.path+'[EXPR]',
-                            expr_value: token.value,
-                            stack: token.stack
-                        })
-                    }
-                    Twig.expression.parseAsync.call(that, token.stack, context)
-                        .then( o => console.log(o));
+
+                    return Twig.expression.parseAsync.call(that, token.stack, context)
+                        .then( o => {
+                            if(tree._focusedNode.lastCplxAtrr) {
+                                tree._focusedNode.lastCplxAtrr.items.push({type:'expr',value:o.gen});
+                            } else {
+                                tree._focusedNode.nodes.push({
+                                    type:"EXPR",
+                                    parent:tree._focusedNode,
+                                    path:tree._focusedNode.path+'[EXPR]',
+                                    expr_value: o.gen,
+                                    stack: token.stack
+                                })
+                            }
+                        });
             }
         })
         .then(function() {
@@ -1593,20 +1595,27 @@ module.exports = function (Twig) {
         return res[attrName];
     }
     //const RCR = 'React.createElement('
-    function stringifyProps(props,output,isStatic) {
+    function stringifyProps(props,output) {
         for( let pk in props) {
             output.push('"' + pk + '":');
-            output.push(isStatic ? '"' +props[pk] + '"' : ('p.'+props[pk]));
+            output.push('"' +props[pk] + '"');
             output.push(',');
         }
+    }
+    function exclNotProps(notProps, str) {
+        notProps.forEach(np => {
+           str = str.replace(new RegExp(`([\\s\\[\\(])p.${np}`,"g"),'$1'+np)
+        })
+        return str;
     }
     function stringifyExprProps(props,output,opts) {
         for( let pk in props) {
             output.push('"' + pk + '":');
             for (var i = 0; i < props[pk].items.length; i++) {
-                const exprOrText = props[pk].items[i];
-                const notProps = opts.notProps && opts.notProps.indexOf(exprOrText.value.split('.')[0]) >= 0;
-                output.push(exprOrText.type == 'text' ? '"' + exprOrText.value + '"' : ((notProps?'(':'(p.')+exprOrText.value+"||'')"));
+                let exprOrText = props[pk].items[i];
+                if(exprOrText.type != 'text' && opts.notProps && opts.notProps.length)
+                    exprOrText = exclNotProps(opts.notProps, exprOrText);
+                output.push(exprOrText.type == 'text' ? '"' + exprOrText.value + '"' : exprOrText);
                 output.push(" + ");
             }
             if(props[pk].items.length>0) output.pop();
@@ -1643,7 +1652,7 @@ module.exports = function (Twig) {
             output.push(mapToPrimitives?htmlTagToPrimitive(tag):'"'+tag+'"')
             output.push(',')
             const propsOut = ['{'];
-            const staticProps = stringifyProps(attrs,propsOut,true);
+            const staticProps = stringifyProps(attrs,propsOut);
             const exprProps = stringifyExprProps(attrWithExpr,propsOut,opts);
             propsOut.pop();
             const propsStr = propsOut.length > 1 ? propsOut.join('')+'}' : 'null';
@@ -1711,9 +1720,9 @@ module.exports = function (Twig) {
                 }
 
             } else {
-                const notProps = opts.notProps && opts.notProps.indexOf(node.expr_value.split('.')[0]) >= 0;
+                const notProps = opts.notProps && opts.notProps.length;
 
-                output.push( (notProps ? '':'p.')+node.expr_value);
+                output.push( notProps ? exclNotProps(opts.notProps, node.expr_value) : node.expr_value);
             }
             output.push(',')
             if(output.noOutput) return applyExpression(stack,_props);
