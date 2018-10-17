@@ -1045,19 +1045,19 @@ module.exports = function (Twig) {
                 case Twig.token.type.output:
                     Twig.log.debug("Twig.parse: ", "Output token: ", token.stack);
                     // Parse the given expression in the given context
-                    const firstExpr = token.stack[token.stack.length-1];
 
                     return Twig.expression.parseAsync.call(that, token.stack, context)
                         .then( o => {
                             if(tree._focusedNode.lastCplxAtrr) {
-                                tree._focusedNode.lastCplxAtrr.items.push({type:'expr',value:o.gen});
+                                tree._focusedNode.lastCplxAtrr.items.push(
+                                    {type:'expr',value:o.gen,exprRes:o.val});
                             } else {
                                 tree._focusedNode.nodes.push({
                                     type:"EXPR",
                                     parent:tree._focusedNode,
                                     path:tree._focusedNode.path+'[EXPR]',
-                                    expr_value: o.gen,
-                                    stack: token.stack
+                                    exprGen: o.gen,
+                                    exprRes:o.val
                                 })
                             }
                         });
@@ -1571,29 +1571,7 @@ module.exports = function (Twig) {
             // return '';
         }
     }
-    function applyExpression(stack,props,attrName='val') {
-        let res = {val:''};
-        if(stack && stack.length) {
-            if(stack[0].type=='Twig.expression.type.variable') {
-                try {
-                    res[attrName] = props[stack[0].value];
-                    for (var i = 1; i < stack.length; i++) {
-                        if(stack[i].type == 'Twig.expression.type.key.period'){
-                            res[attrName] = res[attrName][stack[i].key]
-                        } else {
-                            console.warn('Not implemented')
-                        }
-                    }    
-                } catch(e) {
-                    console.warn('expression evaluation error ',e)
-                }
 
-            } else {
-                console.warn('Not implemented')
-            }
-        } 
-        return res[attrName];
-    }
     //const RCR = 'React.createElement('
     function stringifyProps(props,output) {
         for( let pk in props) {
@@ -1614,8 +1592,8 @@ module.exports = function (Twig) {
             for (var i = 0; i < props[pk].items.length; i++) {
                 let exprOrText = props[pk].items[i];
                 if(exprOrText.type != 'text' && opts.notProps && opts.notProps.length)
-                    exprOrText = exclNotProps(opts.notProps, exprOrText);
-                output.push(exprOrText.type == 'text' ? '"' + exprOrText.value + '"' : exprOrText);
+                    exprOrText = exclNotProps(opts.notProps, exprOrText.value);
+                output.push(exprOrText.type == 'text' ? '"' + exprOrText.value + '"' : exprOrText.value);
                 output.push(" + ");
             }
             if(props[pk].items.length>0) output.pop();
@@ -1633,7 +1611,7 @@ module.exports = function (Twig) {
     const RCR = 'R.c('
     function nodeToEl(node,_props,key,opts,output,loopOutput) {
         const {React,inh,skipSub,mapToPrimitives} = opts;
-        const {type,value,logic,parent,stack,expression,forData,tag,attrs,/* attrExpr, */attrWithExpr,nodes} = node;
+        const {type,value,logic,parent,forLoopCfg,tag,attrs,/* attrExpr, */attrWithExpr,nodes} = node;
         if(!output.noOutput && parent && type!='LOGIC' && parent.ifElseStrBuild) {
             closeIfElse(output,parent);
         }
@@ -1658,9 +1636,7 @@ module.exports = function (Twig) {
             const propsStr = propsOut.length > 1 ? propsOut.join('')+'}' : 'null';
             output.push(loopOutput ? `Object.assign({key},${propsStr})` : propsStr)
             const rProps = {...attrs,key};
-            /* Object.keys(attrExpr).forEach( attrName => {
-                rProps[attrName] = applyExpression(attrExpr[attrName],_props,attrName);
-            }) */
+
             const chlds = createChilds(nodes,_props,key,opts,output,true);
             output.push(')');
             output.push(',');
@@ -1671,9 +1647,9 @@ module.exports = function (Twig) {
                 React.createElement.apply(React,[tag,rProps,...chlds]);
         } else if(type=='LOGIC') {
             if(output.noOutput) {
-                if(logic=="FOR" && expression && expression[0] && _props[expression[0].value] ) { // realtime
+                if(logic=="FOR" && node.exprRes && _props[node.exprRes] ) { // realtime
 
-                    return _props[expression[0].value].map( (obj,idx) => {
+                    return _props[node.exprRes].map( (obj,idx) => {
                         const key = key_var?obj[key_var]:idx,
                             rProps = {
                                 ..._props,
@@ -1684,7 +1660,7 @@ module.exports = function (Twig) {
                 }
                 if(logic=="IF" || (logic=="ELSEIF" && !parent.skip)) { // realtime
                     delete parent.skip;
-                    if(applyExpression(stack,_props)) {
+                    if(node.exprRes) {
                         parent.skip = true;
                         return createChilds(nodes,_props,key,opts,[]);
                     }
@@ -1711,7 +1687,7 @@ module.exports = function (Twig) {
                 return res;
             }
         } else if(type=='EXPR') {
-            if(node.expr_value=='parent()') {
+            if(node.exprGen=='parent()') {
                 let chBlock = node.parent;
                 for ( ; chBlock.logic!='BLOCK' && chBlock.parent ; chBlock = chBlock.parent ) {
                 }
@@ -1722,10 +1698,10 @@ module.exports = function (Twig) {
             } else {
                 const notProps = opts.notProps && opts.notProps.length;
 
-                output.push( notProps ? exclNotProps(opts.notProps, node.expr_value) : node.expr_value);
+                output.push( notProps ? exclNotProps(opts.notProps, node.exprGen) : node.exprGen);
             }
             output.push(',')
-            if(output.noOutput) return applyExpression(stack,_props);
+            if(output.noOutput) return node.exprRes;
         }
         if(!output.noOutput && type=='LOGIC' && (logic=="IF" || logic=="ELSEIF" || logic == "ELSE") ) { // generation
             if(logic == "IF" ) {
@@ -1741,7 +1717,7 @@ module.exports = function (Twig) {
                 if(nodes.length>1) parent.ifElseStrBuild.push('R.c(R.F,null,');
                 createChilds(nodes,_props,key,opts,parent.ifElseStrBuild);
                 if(nodes.length>1) parent.ifElseStrBuild.push(')');
-                parent.ifElseStrBuild.push(`,cond:p => p.${expression}}`)
+                parent.ifElseStrBuild.push(`,cond:p => ${node.exprGen}}`)
             }
             if(logic == "ELSE") {
 
@@ -1773,8 +1749,8 @@ module.exports = function (Twig) {
             
         }
         if(!output.noOutput && logic=="FOR") { // generation
-            const {key_var,value_var} = forData, iterable = expression[0].value;
-            output.push(`!!p.${iterable} && p.${iterable}.map( (${value_var},idx) => {`);
+            const {key_var,value_var} = forLoopCfg, iterable = node.exprGen;
+            output.push(`!!${iterable} && ${iterable}.map( (${value_var},idx) => {`);
             if(key_var) output.push(` const key = ${value_var}.${key_var} || idx;`);
             else output.push(` const key = idx;`);
             if(opts.notProps) opts.notProps.push(value_var);

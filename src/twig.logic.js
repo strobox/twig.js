@@ -94,11 +94,11 @@ module.exports = function (Twig) {
             },
             parse: function (token, context, chain) {
                 var that = this;
-                context.nodeInContext.expression = token.expression;
-                context.nodeInContext.stack = token.stack;
                 return Twig.expression.parseAsync.call(this, token.stack, context)
-                .then(function(result) {
+                .then(function(o) {
                     chain = true;
+                    context.nodeInContext.exprGen = o.gen;
+                    context.nodeInContext.exprRes = o.val;
                     return Twig.parseAsync.call(that, token.output, context);
                 })
                 .then(function(output) {
@@ -136,12 +136,11 @@ module.exports = function (Twig) {
             },
             parse: function (token, context, chain) {
                 var that = this;
-                
-                context.nodeInContext.stack = token.stack;
-                context.nodeInContext.expression = token.expression;
 
                 return Twig.expression.parseAsync.call(this, token.stack, context)
                 .then(function(result) {
+                        context.nodeInContext.exprGen = o.gen;
+                        context.nodeInContext.exprRes = o.val;
                         return Twig.parseAsync.call(that, token.output, context);
                 })
                 .then(function(output) {
@@ -247,19 +246,25 @@ module.exports = function (Twig) {
                 // Parse expression
                 var output = [];
                 const {key_var,value_var} = token;
-                const forData = {key_var,value_var};
-                context.nodeInContext.expression = token.expression;
-                context.nodeInContext.forData = forData;
-                return Twig.parseAsync.call(this, token.output, context)
-                            .then(function(o) {
-                                output.push(o);
-                                //index += 1;
-                            }).then( function() {
-                                return {
-                                    chain: false,
-                                    output: output
-                                }
-                            });
+                const forLoopCfg = {key_var,value_var};
+                context.nodeInContext.forLoopCfg = forLoopCfg;
+                return Twig.expression.parseAsync.call(this, token.expression, context)
+                .then(function(o) {
+                    context.nodeInContext.exprGen = o.gen;
+                    context.nodeInContext.exprRes = o.val;
+
+                    return Twig.parseAsync.call(this, token.output, context)
+                        .then(function(o) {
+                            output.push(o);
+                            //index += 1;
+                        }).then( function() {
+                            return {
+                                chain: false,
+                                output: output
+                            }
+                        });
+                })
+
 
                 var output = [],
                     len,
