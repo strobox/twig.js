@@ -775,7 +775,29 @@ module.exports = function (Twig) {
             }
         }
     }
+    const cmntRe = /<!--([\s\S]*?)-->/g,
+        dirRe = /[\s-]@([\w_$][\w\d_$]+)\s*(\[.*?\])/;
+    function processComentsParse(token_value,directives) {
+        const cmnts = [];
+        let nextCmnt, nextDir, dName;
+        while((nextCmnt = cmntRe.exec(token_value)) !== null) {
+            if(!nextCmnt[1]) continue;
+            nextDir = nextCmnt[1].match(dirRe);
+            if(nextDir && (dName = nextDir[1])) {
+                if(!directives[dName]) directives[dName] = [];
+                try {
+                    console.log(nextDir[2].replace(/'/g,'"'));
+                    directives[dName].push(JSON.parse('{"opts":'+(nextDir[2].replace(/'/g,'"'))+'}'))
+                } catch(e) {
+                    console.error('Bad directive: ',e);
+                }
+            }
 
+            // cmnts.push(nextCmnt);
+        }
+        // console.log(cmnts)
+        return token_value.replace(cmntRe,'');
+    }
     /**
      * Parse a compiled template.
      *
@@ -845,7 +867,7 @@ module.exports = function (Twig) {
                     const regTag = /([^<>]*)>?([^<>]*)<(\/?)(\w+)([^<]*)/g;
                     let result, afterTagName, textCnt, propsRes, styleId,
                         openTagCnt = 0, token_value = token.value,
-                        wasMatch = false;
+                        wasMatch = false, directives = {};
 
                     const styleReg = /<(style).*>([\s\S]*)<\/\1>/;
                     let styleMatch;
@@ -853,6 +875,11 @@ module.exports = function (Twig) {
                         token_value = token_value.replace(styleReg,'');
                         styleId = that.styleBlocks.length;
                         that.styleBlocks.push({css:styleMatch[2]});
+                    }
+                    try {
+                        token_value = processComentsParse(token_value,directives);
+                    } catch(e){ 
+                        console.error(e);
                     }
                     Twig.mylog.trace('<---',token.value,'--->');
                     // responsible for tag (react els) createion, text nodes, and mutliple attributes in inner match
@@ -985,7 +1012,10 @@ module.exports = function (Twig) {
 
                         nextElObj = {parent:tree._focusedNode,path:tree._focusedNode.path+'['+tree._focusedNode.nodes.length+']/',nodes:[]};
                         tree._focusedNode.nodes.push(nextElObj);
-
+                        if(Object.keys(directives)) {
+                            nextElObj.directives = directives;
+                            directives = {};
+                        }
                         nextElObj.tag = res4;
                         nextElObj.path+= res4;
                         nextElObj.type = 'react';
@@ -1649,8 +1679,24 @@ module.exports = function (Twig) {
             node.output = output.join('');
             return value; //return `"${value}"`;
         } else if(type=='react') { // generation + realtime
-            output.push(RCR)
+            const hasMutation = type => node.directives && node.directives.mutate && node.directives.mutate.find( m => m.opts[0] == type),
+                wrapSelf = hasMutation("wrap-self"),
+                hoc = hasMutation("hoc");
             let tagOrCmp = mapToPrimitives?htmlTagToPrimitive(tag) : '"'+tag+'"';
+            if(wrapSelf) {
+                const Cmp = wrapSelf.opts[1];
+                output.push(`${RCR}p['${Cmp}'] || R.F, p['${Cmp}'] ? p : null, `);
+            }
+            if(hoc) {
+                const hocFn = hoc.opts[1];
+                output.push(` (p['${hocFn}'] || (eh => eh) )( p => `);
+            }
+            output.push(RCR)
+            let mtion;
+            if(mtion = hasMutation("override") ) {
+                const Cmp = mtion.opts[1];
+                tagOrCmp = ` p['${Cmp}'] || ${tagOrCmp} `;
+            }
             if(typeof node.styleId == "undefined") {
                 output.push(tagOrCmp)
             } else {
@@ -1668,6 +1714,8 @@ module.exports = function (Twig) {
 
             const chlds = this.createChilds(nodes,_props,key,opts,output,true);
             output.push(')');
+            if(hoc) output.push(')(p)');
+            if(wrapSelf) output.push(')');
             output.push(',');
             node.output = output.join('');
 
