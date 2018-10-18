@@ -1632,6 +1632,7 @@ module.exports = function (Twig) {
         }
     }
     function exclNotProps(notProps, str) {
+        if(!notProps) return str;
         notProps.forEach(np => {
            str = str.replace(new RegExp(`([:\^\\s\\[\\(\$\|]|^)p.${np}`,"g"),'$1'+np)
         })
@@ -1827,11 +1828,14 @@ module.exports = function (Twig) {
         }
         if(!output.noOutput && logic=="FOR") { // generation
             const {key_var,value_var} = forLoopCfg, iterable = node.exprGen;
-            output.push(`!!${iterable} && ${iterable}.map( (${value_var},idx) => {`);
-            if(key_var) output.push(` const key = ${value_var}.${key_var} || idx;`);
-            else output.push(` const key = idx;`);
+            output.push(`!!${iterable} && ${iterable}`)
             if(opts.notProps) opts.notProps.push(value_var);
             else opts.notProps = [value_var];
+            if(node.conditional)
+                output.push( `.filter( ${value_var} => ${ exclNotProps(opts.notProps, node.conditional.gen) } )`)
+            output.push(`.map( (${value_var},idx) => {`);
+            if(key_var) output.push(` const key = ${value_var}.${key_var} || idx;`);
+            else output.push(` const key = idx;`);
             output.push('const res = ');
             if(nodes.length>1) output.push('R.c(R.F,null,');
             this.createChilds(nodes,_props,key,opts,output,false,true);
