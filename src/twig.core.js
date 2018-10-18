@@ -776,27 +776,45 @@ module.exports = function (Twig) {
         }
     }
     const cmntRe = /<!--([\s\S]*?)-->/g,
-        dirRe = /[\s-]@([\w_$][\w\d_$]+)\s*(\[.*?\])/;
+        dirRe = /[\s-]@([\w_$][\w\d_$]+)\s*\[(.*?)\]/;
     function processComentsParse(token_value,directives) {
-        const cmnts = [];
+        const cmnts = [], replaces = [];
         let nextCmnt, nextDir, dName;
         while((nextCmnt = cmntRe.exec(token_value)) !== null) {
-            if(!nextCmnt[1]) continue;
+            if(!nextCmnt[1]) {
+                replaces.push('')
+                continue;
+            }
             nextDir = nextCmnt[1].match(dirRe);
+            console.log(nextDir)
             if(nextDir && (dName = nextDir[1])) {
-                if(!directives[dName]) directives[dName] = [];
+                let opts;
                 try {
-                    console.log(nextDir[2].replace(/'/g,'"'));
-                    directives[dName].push(JSON.parse('{"opts":'+(nextDir[2].replace(/'/g,'"'))+'}'))
+                    opts = JSON.parse('{"args":['+(nextDir[2].replace(/'/g,'"'))+']}');
                 } catch(e) {
                     console.error('Bad directive: ',e);
+                    replaces.push('')
+                    continue;
                 }
+                if(dName=='include') {
+                    replaces.push(`<ReactInclude val="${opts.args[0]}" />`);
+                } else {
+                    if(!directives[dName]) directives[dName] = [];
+                    directives[dName].push(opts);
+                    replaces.push('');
+
+                }
+
+            } else {
+                replaces.push('');
             }
 
             // cmnts.push(nextCmnt);
         }
         // console.log(cmnts)
-        return token_value.replace(cmntRe,'');
+        let i = 0;
+        if(replaces.length) console.log(replaces);
+        return replaces.length ? token_value.replace(cmntRe, () => replaces[i++]) : token_value;
     }
     /**
      * Parse a compiled template.
@@ -849,7 +867,8 @@ module.exports = function (Twig) {
         }
         function tnSantize(obj,t) {
             if(!t) return;
-            const value = t.replace(/^[\r\n]+\s*/,"").replace(/\s*[\r\n]+\s*$/,"").replace(/[\r\n]+/g,"\n");
+            const value = t.replace(/^[\r\n]+\s*/,"").replace(/\s*[\r\n]+\s*$/,"")
+                .replace(/[\r\n]+/g,"\n").replace(/"/g,'\\"');
             if(!value) return;
             obj.nodes.push( {type:"text_node",value})
         }
@@ -869,6 +888,12 @@ module.exports = function (Twig) {
                         openTagCnt = 0, token_value = token.value,
                         wasMatch = false, directives = {};
 
+                    function processDirectives() {
+                        if(Object.keys(directives)) {
+                            if(nextElObj) nextElObj.directives = directives;
+                            directives = {};
+                        }
+                    }
                     const styleReg = /<(style).*>([\s\S]*)<\/\1>/;
                     let styleMatch;
                     if(styleMatch = token_value.match(styleReg)) {
@@ -1011,11 +1036,8 @@ module.exports = function (Twig) {
                         Twig.mylog.trace('attr: ',attrPart);
 
                         nextElObj = {parent:tree._focusedNode,path:tree._focusedNode.path+'['+tree._focusedNode.nodes.length+']/',nodes:[]};
+                        processDirectives();
                         tree._focusedNode.nodes.push(nextElObj);
-                        if(Object.keys(directives)) {
-                            nextElObj.directives = directives;
-                            directives = {};
-                        }
                         nextElObj.tag = res4;
                         nextElObj.path+= res4;
                         nextElObj.type = 'react';
@@ -1040,7 +1062,6 @@ module.exports = function (Twig) {
                         tree._focusedNode.styleId = styleId;
                         styleId= null;
                     }
-
                     if(!wasMatch && token_value_trim.length) {
                         if(token_value_trim.slice(-1).match(/[">]/) || token_value_trim[0]=='"') {
                             parsePropsAttrs(token_value_trim,false,tree._focusedNode);
@@ -1679,23 +1700,23 @@ module.exports = function (Twig) {
             output.push(',');
             node.output = output.join('');
             return value; //return `"${value}"`;
-        } else if(type=='react') { // generation + realtime
-            const hasMutation = type => node.directives && node.directives.mutate && node.directives.mutate.find( m => m.opts[0] == type),
+        } else if(type=='react' && tag!=="ReactInclude") { // generation + realtime
+            const hasMutation = type => node.directives && node.directives.mutate && node.directives.mutate.find( m => m.args[0] == type),
                 wrapSelf = hasMutation("wrap-self"),
                 hoc = hasMutation("hoc");
             let tagOrCmp = mapToPrimitives?htmlTagToPrimitive(tag) : '"'+tag+'"';
             if(wrapSelf) {
-                const Cmp = wrapSelf.opts[1];
+                const Cmp = wrapSelf.args[1];
                 output.push(`${RCR}p['${Cmp}'] || R.F, p['${Cmp}'] ? p : null, `);
             }
             if(hoc) {
-                const hocFn = hoc.opts[1];
+                const hocFn = hoc.args[1];
                 output.push(` (p['${hocFn}'] || (eh => eh) )( p => `);
             }
             output.push(RCR)
             let mtion;
             if(mtion = hasMutation("override") ) {
-                const Cmp = mtion.opts[1];
+                const Cmp = mtion.args[1];
                 tagOrCmp = ` p['${Cmp}'] || ${tagOrCmp} `;
             }
             if(typeof node.styleId == "undefined") {
@@ -1723,6 +1744,17 @@ module.exports = function (Twig) {
             return !chlds || chlds.constructor!=Array ? 
                 React.createElement(tag,rProps,chlds) :
                 React.createElement.apply(React,[tag,rProps,...chlds]);
+        } else if(tag=="ReactInclude") {
+            try {
+                console.log(node);
+                const Cmp = attrs.val;
+                output.push(`p['${Cmp}'] ? p['${Cmp}'](p) : null `);
+                
+            } catch(e) {
+                console.error(e);
+                output.push('null /* error include */')
+            }
+            output.push(',');
         } else if(type=='LOGIC') {
             if(output.noOutput) {
                 if(logic=="FOR" && node.exprRes && _props[node.exprRes] ) { // realtime
@@ -1815,11 +1847,11 @@ module.exports = function (Twig) {
             const tplAlias = node.inclAlias;
             output.push(tplAlias);
             if(node.withContext) {
-                if(node.withContext.match(/\s*\{/)) {
-                    output.push('('+node.withContext.replace(/(:\s*)([a-z_\$])/g,"$1p.$2")+')');
-                } else {
-                    output.push('(p.'+node.withContext+')');
-                }
+                output.push('(');
+                output.push('Object.assign(');
+                output.push(node.withContext.replace(/(:\s*)([a-z_\$])/g,"$1p.$2"));
+                output.push(',p)');
+                output.push(')');
             } else {
                 output.push('(p)');
             }
