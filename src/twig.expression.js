@@ -796,6 +796,9 @@ module.exports = function (Twig) {
 
                 return parseParams(this, token.params, context)
                 .then(function(params) {
+                    if(!Twig.doeval)
+                        return '';
+
                     if (Twig.functions[fn]) {
                         // Get the function from the built-in functions
                         value = Twig.functions[fn].apply(that, params);
@@ -811,9 +814,11 @@ module.exports = function (Twig) {
                     return value;
                 })
                 .then(function(result) {
-                    stack.push({val:result});
+                    const propOrNo = context._$not_props && context._$not_props.indexOf(token.value)>=0 ?
+                        '' : 'p.';
+                    stack.push({val:result,gen:propOrNo+fn+'()'});
                 });
-            debugger;}
+            }
         },
 
         // Token representing a variable.
@@ -838,7 +843,9 @@ module.exports = function (Twig) {
                 // Get the variable from the context
                 return Twig.expression.resolveAsync.call(this, context[token.value], context)
                 .then(function(value) {
-                    stack.push({val:value,gen:'p.'+token.value});
+                    const propOrNo = context._$not_props && context._$not_props.indexOf(token.value)>=0 ?
+                        '' : 'p.';
+                    stack.push({val:value,gen:propOrNo+token.value});
                 });
             debugger;}
         },
@@ -862,35 +869,43 @@ module.exports = function (Twig) {
                     value;
 
                 return parseParams(this, token.params, context)
-                .then(!Twig.doeval ? () => Twig.Promise.resolve('') : function(params) {
-                    if (object === null || object === undefined) {
-                        if (that.options.strict_variables) {
-                            throw new Twig.Error("Can't access a key " + key + " on an null or undefined object.");
+                .then(function(params) {
+                    if(Twig.doeval) {
+                        if (object === null || object === undefined) {
+                            if (that.options.strict_variables) {
+                                throw new Twig.Error("Can't access a key " + key + " on an null or undefined object.");
+                            } else {
+                                value = undefined;
+                            }
                         } else {
-                            value = undefined;
-                        }
-                    } else {
-                        var capitalize = function (value) {
-                            return value.substr(0, 1).toUpperCase() + value.substr(1);
-                        };
+                            var capitalize = function (value) {
+                                return value.substr(0, 1).toUpperCase() + value.substr(1);
+                            };
 
-                        // Get the variable from the context
-                        if (typeof object === 'object' && key in object) {
-                            value = object[key];
-                        } else if (object["get" + capitalize(key)] !== undefined) {
-                            value = object["get" + capitalize(key)];
-                        } else if (object["is" + capitalize(key)] !== undefined) {
-                            value = object["is" + capitalize(key)];
-                        } else {
-                            value = undefined;
-                        }
+                            // Get the variable from the context
+                            if (typeof object === 'object' && key in object) {
+                                value = object[key];
+                            } else if (object["get" + capitalize(key)] !== undefined) {
+                                value = object["get" + capitalize(key)];
+                            } else if (object["is" + capitalize(key)] !== undefined) {
+                                value = object["is" + capitalize(key)];
+                            } else {
+                                value = undefined;
+                            }
+                        }                        
+                    } else {
+                        value = undefined;
                     }
+
 
                     // When resolving an expression we need to pass next_token in case the expression is a function
                     return Twig.expression.resolveAsync.call(that, value, context, params, next_token, object);
                 })
                 .then(function(result) {
-                    stack.push({val:result,gen:poped.gen+'.'+key});
+                    let fCall = ''
+                    if(next_token && next_token.type == Twig.expression.type.parameter.end)
+                        fCall = '('+result.gen+')';
+                    stack.push({val:result,gen:poped.gen+'.'+key+fCall});
                 });
             debugger;}
         },
@@ -1032,7 +1047,7 @@ module.exports = function (Twig) {
         }
 
         return promise.then(function(params) {
-            return value.apply(object || context, params || []);
+            return {gen: params ? params.map(p => p.gen).join(',') : '' , val: value.apply(object || context, params ? params.map( p => p.val) : [])};
         });
     };
 

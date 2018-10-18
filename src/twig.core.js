@@ -786,7 +786,6 @@ module.exports = function (Twig) {
                 continue;
             }
             nextDir = nextCmnt[1].match(dirRe);
-            console.log(nextDir)
             if(nextDir && (dName = nextDir[1])) {
                 let opts;
                 try {
@@ -1652,23 +1651,14 @@ module.exports = function (Twig) {
             output.push(',');
         }
     }
-    function exclNotProps(notProps, str) {
-        if(!notProps) return str;
-        notProps.forEach(np => {
-           str = str.replace(new RegExp(`([:\^\\s\\[\\(\$\|]|^)p.${np}`,"g"),'$1'+np)
-        })
-        return str;
-    }
+
     function stringifyExprProps(props,output,opts) {
         for( let pk in props) {
             output.push('"' + pk + '":');
             for (var i = 0; i < props[pk].items.length; i++) {
-                let exprOrText = props[pk].items[i], propExpr = "";
-                if(exprOrText.type != 'text' && opts.notProps && opts.notProps.length)
-                    propExpr = exclNotProps(opts.notProps, exprOrText.value);
-                else 
-                    propExpr = exprOrText.value;
-                output.push(exprOrText.type == 'text' ? '"' + exprOrText.value + '"' : propExpr);
+                let exprOrText = props[pk].items[i].value, propExpr = "";
+
+                output.push(exprOrText.type == 'text' ? '"' + exprOrText + '"' : exprOrText);
                 output.push(" + ");
             }
             if(props[pk].items.length>0) output.pop();
@@ -1746,7 +1736,6 @@ module.exports = function (Twig) {
                 React.createElement.apply(React,[tag,rProps,...chlds]);
         } else if(tag=="ReactInclude") {
             try {
-                console.log(node);
                 const Cmp = attrs.val;
                 output.push(`p['${Cmp}'] ? p['${Cmp}'](p) : null `);
                 
@@ -1806,9 +1795,7 @@ module.exports = function (Twig) {
                 }
 
             } else {
-                const notProps = opts.notProps && opts.notProps.length;
-
-                output.push( notProps ? exclNotProps(opts.notProps, node.exprGen) : node.exprGen);
+                output.push( node.exprGen);
             }
             output.push(',')
             if(output.noOutput) return node.exprRes;
@@ -1861,10 +1848,9 @@ module.exports = function (Twig) {
         if(!output.noOutput && logic=="FOR") { // generation
             const {key_var,value_var} = forLoopCfg, iterable = node.exprGen;
             output.push(`!!${iterable} && ${iterable}`)
-            if(opts.notProps) opts.notProps.push(value_var);
-            else opts.notProps = [value_var];
+
             if(node.conditional)
-                output.push( `.filter( ${value_var} => ${ exclNotProps(opts.notProps, node.conditional.gen) } )`)
+                output.push( `.filter( ${value_var} => ${ node.conditional.gen } )`)
             output.push(`.map( (${value_var},idx) => {`);
             if(key_var) output.push(` const key = ${value_var}.${key_var} || idx;`);
             else output.push(` const key = idx;`);
@@ -1872,13 +1858,6 @@ module.exports = function (Twig) {
             if(nodes.length>1) output.push('R.c(R.F,null,');
             this.createChilds(nodes,_props,key,opts,output,false,true);
             if(nodes.length>1) output.push(')');
-            if(opts.notProps) {
-                if(opts.notProps.length>1) {
-                    const idxp = opts.notProps.indexOf(value_var);
-                    opts.notProps.splice(idxp,1);
-                }
-                if(opts.notProps.length<2) delete opts.notProps;
-            }
             output.push('; return res;})');
             output.push(',');                   
             

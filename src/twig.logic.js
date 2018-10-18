@@ -248,6 +248,10 @@ module.exports = function (Twig) {
                 const {key_var,value_var} = token;
                 const forLoopCfg = {key_var,value_var};
                 context.nodeInContext.forLoopCfg = forLoopCfg;
+                if(!context._$not_props)
+                    context._$not_props = [value_var];
+                else context._$not_props.push(value_var);
+                
                 context.nodeInContext.conditional = Twig.expression.parse.call(that, token.conditional, context);
                 return Twig.expression.parseAsync.call(this, token.expression, context)
                 .then(function(o) {

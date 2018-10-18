@@ -277,7 +277,7 @@ module.exports = function (Twig) {
 
             case 'not':
             case '!':
-                genStr = '!'+genOrVal(b);
+                genStr = '!'+genOrVal(_b);
                 _fstack.push({gen:genStr,val:!Twig.lib.boolval(b)});
                 break;
 
