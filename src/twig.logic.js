@@ -251,8 +251,8 @@ module.exports = function (Twig) {
                 if(!context._$not_props)
                     context._$not_props = [value_var];
                 else context._$not_props.push(value_var);
-                
-                context.nodeInContext.conditional = Twig.expression.parse.call(that, token.conditional, context);
+                if(token.conditional)
+                    context.nodeInContext.conditional = Twig.expression.parse.call(that, token.conditional, context);
                 return Twig.expression.parseAsync.call(this, token.expression, context)
                 .then(function(o) {
                     context.nodeInContext.exprGen = o.gen;

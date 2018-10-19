@@ -551,7 +551,8 @@ module.exports = function (Twig) {
             parse: function(token, stack, context) {
                 var new_array = [],
                     array_ended = false,
-                    value = null;
+                    value = null,
+                    poped;
 
                 if (token.expression) {
                     return Twig.expression.parseAsync.call(this, token.params, context)
@@ -561,20 +562,21 @@ module.exports = function (Twig) {
                 } else {
 
                     while (stack.length > 0) {
-                        value = stack.pop().val;
+                        poped = stack.pop();
+                        value = poped.val;
                         // Push values into the array until the start of the array
                         if (value && value.type && value.type == Twig.expression.type.parameter.start) {
                             array_ended = true;
                             break;
                         }
-                        new_array.unshift(value);
+                        new_array.unshift({val:value,gen:poped.gen});
                     }
 
                     if (!array_ended) {
                         throw new Twig.Error("Expected end of parameter set.");
                     }
 
-                    stack.push({val:new_array});
+                    stack.push(new_array);
                 }
             debugger;}
         },
@@ -797,7 +799,7 @@ module.exports = function (Twig) {
                 return parseParams(this, token.params, context)
                 .then(function(params) {
                     if(!Twig.doeval)
-                        return '';
+                        return {val:'',gen:params.map( p => p.gen).join(',')};
 
                     if (Twig.functions[fn]) {
                         // Get the function from the built-in functions
@@ -811,12 +813,12 @@ module.exports = function (Twig) {
                         throw new Twig.Error(fn + ' function does not exist and is not defined in the context');
                     }
 
-                    return value;
+                    return {val:value,gen:params.map( p => p.gen).join(',')};
                 })
                 .then(function(result) {
                     const propOrNo = context._$not_props && context._$not_props.indexOf(token.value)>=0 ?
                         '' : 'p.';
-                    stack.push({val:result,gen:propOrNo+fn+'()'});
+                    stack.push({val:result,gen:propOrNo+fn+'('+result.gen+')'});
                 });
             }
         },

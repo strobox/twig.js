@@ -1706,7 +1706,7 @@ module.exports = function (Twig) {
             }
             if(hoc) {
                 const hocFn = hoc.args[1];
-                output.push(` (p['${hocFn}'] || (eh => eh) )( p => `);
+                output.push(` R.c((p['${hocFn}'] || (eh => eh) )( p => `);
             }
             output.push(RCR)
             let mtion;
@@ -1763,7 +1763,7 @@ module.exports = function (Twig) {
 
             const chlds = this.createChilds(nodes,_props,key,opts,output,true);
             output.push(')');
-            if(hoc) output.push(')(p)');
+            if(hoc) output.push('),p,null)');
             if(wrapSelf) output.push(')');
             output.push(',');
             node.output = output.join('');
