@@ -787,9 +787,10 @@ module.exports = function (Twig) {
             }
             nextDir = nextCmnt[1].match(dirRe);
             if(nextDir && (dName = nextDir[1])) {
-                let opts;
+                let opts, argsStr = nextDir[2];
                 try {
-                    opts = JSON.parse('{"args":['+(nextDir[2].replace(/^'/g,'"').replace(/'$/g,'"'))+']}');
+                    argsStr = argsStr.replace( /(["'])(?:(?=(\\?))\2[\s\S])*?\1/g, m => m.replace(/(^'|'$)/g,'"') )
+                    opts = JSON.parse('{"args":['+argsStr+']}');
                 } catch(e) {
                     console.error('Bad directive: ',e);
                     replaces.push('')
@@ -976,7 +977,7 @@ module.exports = function (Twig) {
                                 delete tree._focusedNode.lastCplxAtrr;
                                 if(typeof styleId!= "undefined") {
                                     tree._focusedNode.styleId = styleId;
-                                    styleId= null;
+                                    styleId= undefined;
                                 }
                                 tree._focusedNode = tree._focusedNode.parent;
                                 let textPart;
@@ -1009,7 +1010,7 @@ module.exports = function (Twig) {
                             delete tree._focusedNode.lastCplxAtrr;
                             if(typeof styleId!= "undefined") {
                                 tree._focusedNode.styleId = styleId;
-                                styleId= null;
+                                styleId= undefined;
                             }
                             tree._focusedNode = tree._focusedNode.parent;
                             Twig.mylog.trace('Close tag and continue')
@@ -1697,7 +1698,9 @@ module.exports = function (Twig) {
             return value; //return `"${value}"`;
         } else if(type=='react' && tag!=="js_ReactInclude") { // generation + realtime
             const hasMutation = type => node.directives && node.directives.mutate && node.directives.mutate.find( m => m.args[0] == type),
+                hasOverride = type => node.directives && node.directives.override && node.directives.override.length && node.directives.override[node.directives.override.length-1],
                 wrapSelf = hasMutation("wrap-self"),
+                override = hasOverride(),
                 hoc = hasMutation("hoc");
             let tagOrCmp = mapToPrimitives?htmlTagToPrimitive(tag) : '"'+tag+'"';
             if(wrapSelf) {
@@ -1710,15 +1713,39 @@ module.exports = function (Twig) {
             }
             output.push(RCR)
             let mtion;
-            if(mtion = hasMutation("override") ) {
+            let overridenTagOrCmp, preservedCmpProp;
+            if(override) {
+                overridenTagOrCmp = override.args[0];
+                if(override.args[2]) {
+                    preservedCmpProp = override.args[2];
+                }
+            } 
+            let replMutation = '';
+            if(mtion = hasMutation("replace-tag") ) {
                 const Cmp = mtion.args[1];
-                tagOrCmp = ` p['${Cmp}'] || ${tagOrCmp} `;
+                replMutation = ` p['${Cmp}'] || `;
             }
             if(typeof node.styleId == "undefined") {
-                output.push(tagOrCmp)
+                output.push(overridenTagOrCmp || (replMutation + tagOrCmp))
             } else {
-                this.styleBlocks[node.styleId].tag = tagOrCmp;
-                output.push(`StyledCmp_${node.styleId}`);
+                if(!override) {
+                    output.push(replMutation + `StyledCmp_${node.styleId}`);
+                    if(replMutation) {
+                        console.warn('!!! Attention. Replaced element/tag (if will be passed through props) will not be styled ');
+                        console.warn('cause replace happen at render cycle through props, but style generation at js initilization step !!!');
+                    }
+                    this.styleBlocks[node.styleId].tag = tagOrCmp;
+                } else {
+                    if(preservedCmpProp) {
+                        output.push(overridenTagOrCmp);
+                        this.styleBlocks[node.styleId].tag = tagOrCmp;
+                        tagOrCmp = `StyledCmp_${node.styleId}`;
+                    } else {
+                        output.push(`StyledCmp_${node.styleId}`);
+                        this.styleBlocks[node.styleId].tag = overridenTagOrCmp;
+                    }
+                }
+                
             }
             output.push(',')
             const propsOut = ['{'];
@@ -1726,7 +1753,15 @@ module.exports = function (Twig) {
             const exprProps = stringifyExprProps(attrWithExpr,propsOut,opts);
             propsOut.pop();
             const propsStr = propsOut.length > 1 ? propsOut.join('')+'}' : 'null';
-            output.push(loopOutput ? `Object.assign({key},${propsStr})` : propsStr)
+            if(loopOutput || (override && override.args[1])) {
+                output.push('Object.assign(');
+                if(loopOutput) output.push('{key},');
+                if(override && override.args[1]) output.push(override.args[1]+',');
+                if(preservedCmpProp) output.push( '{'+preservedCmpProp+': '+tagOrCmp+'},')
+                output.push(`${propsStr})`);
+            } else {
+                output.push(propsStr);
+            }
             const rProps = {...attrs,key};
 
             const chlds = this.createChilds(nodes,_props,key,opts,output,true);
