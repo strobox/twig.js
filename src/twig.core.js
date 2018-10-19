@@ -900,7 +900,7 @@ module.exports = function (Twig) {
                     const styleReg = /<(style).*>([\s\S]*)<\/\1>/;
                     let styleMatch;
                     if(styleMatch = token_value.match(styleReg)) {
-                        token_value = token_value.replace(styleReg,'');
+                        token_value = token_value.replace(styleReg,'<style_place/>');
                         styleId = that.styleBlocks.length;
                         that.styleBlocks.push({css:styleMatch[2]});
                     }
@@ -975,10 +975,7 @@ module.exports = function (Twig) {
                                 openTagCnt--;
                                 finishCplxAttr(tree._focusedNode);
                                 delete tree._focusedNode.lastCplxAtrr;
-                                if(typeof styleId!= "undefined") {
-                                    tree._focusedNode.styleId = styleId;
-                                    styleId= undefined;
-                                }
+
                                 tree._focusedNode = tree._focusedNode.parent;
                                 let textPart;
                                 if(result[5] && (textPart = result[5].slice(1).trim()).length) {
@@ -1008,11 +1005,8 @@ module.exports = function (Twig) {
                             openTagCnt--;
                             finishCplxAttr(tree._focusedNode);
                             delete tree._focusedNode.lastCplxAtrr;
-                            if(typeof styleId!= "undefined") {
-                                tree._focusedNode.styleId = styleId;
-                                styleId= undefined;
-                            }
                             tree._focusedNode = tree._focusedNode.parent;
+
                             Twig.mylog.trace('Close tag and continue')
                             if(res3=="/")   continue;
                         }
@@ -1030,6 +1024,11 @@ module.exports = function (Twig) {
                             }
                             if(afterTagName[cltagp-1]=="/") {
                                 WHOLE_SELF_CLOSE = true;
+                                if(res4 == 'style_place') {
+                                    tree._focusedNode.styleId = styleId;
+                                    styleId= undefined;
+                                    continue;
+                                }
                             }
                             attrPart = afterTagName.slice(0, cltagp - (WHOLE_SELF_CLOSE?1:0)).trim();
                         } else {
@@ -1061,10 +1060,7 @@ module.exports = function (Twig) {
  
                     }
                     const token_value_trim = token_value.trim();
-                    if(typeof styleId!= "undefined") {
-                        tree._focusedNode.styleId = styleId;
-                        styleId= null;
-                    }
+
                     if(!wasMatch && token_value_trim.length) {
                         if(token_value_trim.slice(-1).match(/[">]/) || token_value_trim[0]=='"') {
                             parsePropsAttrs(token_value_trim,false,tree._focusedNode);
@@ -1080,6 +1076,7 @@ module.exports = function (Twig) {
                         else
                             tnSantize(tree._focusedNode,token.value)
                     }
+
 
                     
                     break;
