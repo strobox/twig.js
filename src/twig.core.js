@@ -1873,7 +1873,7 @@ module.exports = function (Twig) {
             if(node.withContext) {
                 output.push('(');
                 output.push('Object.assign(');
-                output.push(node.withContext.replace(/(:\s*)([a-z_\$])/g,"$1p.$2"));
+                output.push(node.withContext);
                 output.push(',p)');
                 output.push(')');
             } else {

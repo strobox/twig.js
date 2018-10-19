@@ -791,7 +791,6 @@ module.exports = function (Twig) {
                 }).stack;
 
                 if (withContext !== undefined) {
-                    token.withContextStr = withContext.trim();
                     token.withStack = Twig.expression.compile.call(this, {
                         type:  Twig.expression.type.expression,
                         value: withContext.trim()
@@ -803,15 +802,22 @@ module.exports = function (Twig) {
             parse: function logicTypeInclude(token, context, chain) {
                 // Resolve filename
                 // context.nodeInContext.stack = token.stack;
+                var promise = null, result = { chain: chain, output: '' };;
                 const filePath = token.expression.trim();
                 const inclAlias = filePath.replace(/['".]/g,'').replace(/[\/\\-]/g,'_');
                 context.nodeInContext.inclAlias = inclAlias;
                 context.nodeInContext.expression = filePath;
                 //  t = "'menu': menu.get_items, rest:{start:3,end:2},other:'logo', obj:{intro:{passed:'bom'}}"
                 //  be = /["']{0,1}\S+["']{0,1}\s*:\s*(\{[^{]*\})/g, t.replace(be,'')
-                context.nodeInContext.withContext = token.withContextStr;
                 this.includes[inclAlias] = filePath;
-                return '';
+                if(token.withStack)
+                    promise = Twig.expression.parseAsync.call(this, token.withStack, context).then(function(withContext) {
+                        context.nodeInContext.withContext = withContext.gen;
+                        return result;
+                    });
+                else 
+                    promise = Twig.Promise.resolve(result);
+                return promise;
                 var innerContext = token.only ? {} : Twig.ChildContext(context),
                     ignoreMissing = token.ignoreMissing,
                     that = this,

@@ -698,14 +698,24 @@ module.exports = function (Twig) {
             },
             parse: function(end_token, stack, context) {
                 var new_object = {},
+                    new_object_gen = [],
                     object_ended = false,
                     token = null,
                     token_key = null,
                     has_value = false,
+                    poped = null,
+                    value_gen = null,
                     value = null;
-
+                if(!Twig.doeval) object_ended = true;
                 while (stack.length > 0) {
-                    token = stack.pop().val;
+                    poped = stack.pop();
+                    token = poped.val;
+                    if (token && token.type && (token.type === Twig.expression.type.operator.binary || token.type === Twig.expression.type.operator.unary) && token.key) {
+                        new_object_gen.push(token.key+':'+value_gen);
+                    } else {
+                        value_gen = poped.gen;
+                    }
+                    if(!Twig.doeval) continue;
                     // Push values into the array until the start of the object
                     if (token && token.type && token.type === Twig.expression.type.object.start) {
                         object_ended = true;
@@ -735,8 +745,7 @@ module.exports = function (Twig) {
                 if (!object_ended) {
                     throw new Twig.Error("Unexpected end of object.");
                 }
-
-                stack.push({val:new_object});
+                stack.push({val:new_object,gen:`{${new_object_gen.join(',')}}`});
             debugger;}
         },
 
@@ -932,6 +941,8 @@ module.exports = function (Twig) {
                 // Evaluate key
                 var that = this,
                     params = null,
+                    poped = null,
+                    gen = '',
                     object,
                     value;
 
@@ -941,8 +952,11 @@ module.exports = function (Twig) {
                     return Twig.expression.parseAsync.call(that, token.stack, context);
                 })
                 .then(function(key) {
-                    object = stack.pop().val;
-
+                    gen = key.gen;
+                    key = key.val;
+                    poped = stack.pop();
+                    object = poped.val;
+                    if(!Twig.doeval) return Twig.Promise.resolve({val:'',gen:gen});
                     if (object === null || object === undefined) {
                         if (that.options.strict_variables) {
                             throw new Twig.Error("Can't access a key " + key + " on an null or undefined object.");
@@ -959,10 +973,10 @@ module.exports = function (Twig) {
                     }
 
                     // When resolving an expression we need to pass next_token in case the expression is a function
-                    return Twig.expression.resolveAsync.call(that, value, object, params, next_token);
+                    return Twig.expression.resolveAsync.call(that, {val:value,gen:gen}, object, params, next_token);
                 })
                 .then(function(result) {
-                    stack.push({val:result});
+                    stack.push(result);
                 });
             debugger;}
         },

@@ -221,10 +221,12 @@ module.exports = function (Twig) {
                 if (a === undefined) {
                     //An extended ternary.
                     a = b;
+                    _a = _b
                     b = c;
-                    c = undefined;
+                    _b = _c
+                    c = _c = undefined;
                 }
-
+                genStr = `(${_a.gen} ? ${_b.gen} : ${_c ? _c.gen : '""'})`
                 if (Twig.lib.boolval(a)) {
                     _fstack.push({gen:genStr,val:b});
                 } else {
