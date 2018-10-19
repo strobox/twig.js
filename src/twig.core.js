@@ -777,7 +777,7 @@ module.exports = function (Twig) {
     }
     const cmntRe = /<!--([\s\S]*?)-->/g,
         dirRe = /[\s-]@([\w_$][\w\d_$]+)\s*\[(.*?)\]/;
-    function processComentsParse(token_value,directives) {
+    function processComentsParse(tpl,token_value,directives) {
         const cmnts = [], replaces = [];
         let nextCmnt, nextDir, dName;
         while((nextCmnt = cmntRe.exec(token_value)) !== null) {
@@ -789,14 +789,17 @@ module.exports = function (Twig) {
             if(nextDir && (dName = nextDir[1])) {
                 let opts;
                 try {
-                    opts = JSON.parse('{"args":['+(nextDir[2].replace(/'/g,'"'))+']}');
+                    opts = JSON.parse('{"args":['+(nextDir[2].replace(/^'/g,'"').replace(/'$/g,'"'))+']}');
                 } catch(e) {
                     console.error('Bad directive: ',e);
                     replaces.push('')
                     continue;
                 }
                 if(dName=='include') {
-                    replaces.push(`<ReactInclude val="${opts.args[0]}" />`);
+                    replaces.push(`<js_ReactInclude val="${opts.args[0]}" />`);
+                } else if(dName=='require') {
+                    tpl.requires.push(opts.args[0])
+                    replaces.push('');
                 } else {
                     if(!directives[dName]) directives[dName] = [];
                     directives[dName].push(opts);
@@ -901,7 +904,7 @@ module.exports = function (Twig) {
                         that.styleBlocks.push({css:styleMatch[2]});
                     }
                     try {
-                        token_value = processComentsParse(token_value,directives);
+                        token_value = processComentsParse(that,token_value,directives);
                     } catch(e){ 
                         console.error(e);
                     }
@@ -1478,6 +1481,7 @@ module.exports = function (Twig) {
             blocks = params.blocks,
             includes = {},
             styleBlocks = [],
+            requires = [],
             macros = params.macros || {},
             base = params.base,
             path = params.path,
@@ -1532,6 +1536,7 @@ module.exports = function (Twig) {
         this.blocks = {};
         this.includes = {};
         this.styleBlocks = [];
+        this.requires = [];
         this.importedBlocks = [];
         this.originalBlockTokens = {};
         this.child = {
@@ -1656,9 +1661,9 @@ module.exports = function (Twig) {
         for( let pk in props) {
             output.push('"' + pk + '":');
             for (var i = 0; i < props[pk].items.length; i++) {
-                let exprOrText = props[pk].items[i].value, propExpr = "";
+                let exprOrText = props[pk].items[i], propExpr = exprOrText.value;
 
-                output.push(exprOrText.type == 'text' ? '"' + exprOrText + '"' : exprOrText);
+                output.push(exprOrText.type == 'text' ? '"' + propExpr + '"' : propExpr);
                 output.push(" + ");
             }
             if(props[pk].items.length>0) output.pop();
@@ -1690,7 +1695,7 @@ module.exports = function (Twig) {
             output.push(',');
             node.output = output.join('');
             return value; //return `"${value}"`;
-        } else if(type=='react' && tag!=="ReactInclude") { // generation + realtime
+        } else if(type=='react' && tag!=="js_ReactInclude") { // generation + realtime
             const hasMutation = type => node.directives && node.directives.mutate && node.directives.mutate.find( m => m.args[0] == type),
                 wrapSelf = hasMutation("wrap-self"),
                 hoc = hasMutation("hoc");
@@ -1734,7 +1739,7 @@ module.exports = function (Twig) {
             return !chlds || chlds.constructor!=Array ? 
                 React.createElement(tag,rProps,chlds) :
                 React.createElement.apply(React,[tag,rProps,...chlds]);
-        } else if(tag=="ReactInclude") {
+        } else if(tag=="js_ReactInclude") {
             try {
                 const Cmp = attrs.val;
                 output.push(`p['${Cmp}'] ? p['${Cmp}'](p) : null `);
