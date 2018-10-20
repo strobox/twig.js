@@ -942,7 +942,7 @@ module.exports = function (Twig) {
                 var that = this,
                     params = null,
                     poped = null,
-                    gen = '',
+                    key_gen = '',
                     object,
                     value;
 
@@ -952,11 +952,11 @@ module.exports = function (Twig) {
                     return Twig.expression.parseAsync.call(that, token.stack, context);
                 })
                 .then(function(key) {
-                    gen = key.gen;
+                    key_gen = key.gen;
                     key = key.val;
                     poped = stack.pop();
                     object = poped.val;
-                    if(!Twig.doeval) return Twig.Promise.resolve({val:'',gen:gen});
+                    if(!Twig.doeval) return Twig.Promise.resolve({val:'',gen:`${poped.gen}[${key_gen}]`});
                     if (object === null || object === undefined) {
                         if (that.options.strict_variables) {
                             throw new Twig.Error("Can't access a key " + key + " on an null or undefined object.");
