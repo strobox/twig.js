@@ -897,12 +897,20 @@ module.exports = function (Twig) {
                             directives = {};
                         }
                     }
-                    const styleReg = /<(style).*>([\s\S]*)<\/\1>/;
+                    const styleReg = /<(style)(.*)>([\s\S]*)<\/\1>/;
                     let styleMatch;
                     if(styleMatch = token_value.match(styleReg)) {
                         token_value = token_value.replace(styleReg,'<style_place/>');
                         styleId = that.styleBlocks.length;
-                        that.styleBlocks.push({css:styleMatch[2]});
+                        const styleDet = {css:styleMatch[3]};
+                        let styleNameMtch;
+                        if( styleMatch[2] && (styleNameMtch = styleMatch[2].match(/name=['"](.*)['"]/)) ) {
+                            styleDet.name = styleNameMtch[1];
+                        }
+                        if( styleMatch[2] && (styleNameMtch = styleMatch[2].match(/extends=['"](.*)['"]/)) ) {
+                            styleDet.extName = styleNameMtch[1];
+                        }
+                        that.styleBlocks.push(styleDet);
                     }
                     try {
                         token_value = processComentsParse(that,token_value,directives);
@@ -1725,8 +1733,12 @@ module.exports = function (Twig) {
             if(typeof node.styleId == "undefined") {
                 output.push(overridenTagOrCmp || (replMutation + tagOrCmp))
             } else {
+                let StlTag = `StyledCmp_${this.styleBlocks[node.styleId].name || node.styleId}`;
+                if(Object.keys(this.blocks).length && this.styleBlocks[node.styleId].name && !this.isExtend) {
+                    StlTag = 'ovrrdn && ovrrdn.'+StlTag+ ' || '+StlTag;
+                }
                 if(!override) {
-                    output.push(replMutation + `StyledCmp_${node.styleId}`);
+                    output.push(replMutation + StlTag);
                     if(replMutation) {
                         console.warn('!!! Attention. Replaced element/tag (if will be passed through props) will not be styled ');
                         console.warn('cause replace happen at render cycle through props, but style generation at js initilization step !!!');
@@ -1736,9 +1748,9 @@ module.exports = function (Twig) {
                     if(preservedCmpProp) {
                         output.push(overridenTagOrCmp);
                         this.styleBlocks[node.styleId].tag = tagOrCmp;
-                        tagOrCmp = `StyledCmp_${node.styleId}`;
+                        tagOrCmp = StlTag;
                     } else {
-                        output.push(`StyledCmp_${node.styleId}`);
+                        output.push(StlTag);
                         this.styleBlocks[node.styleId].tag = overridenTagOrCmp;
                     }
                 }
@@ -1817,18 +1829,18 @@ module.exports = function (Twig) {
                     : this.createChilds(nodes,_props,key,opts,blockOutput);
                     if(nodes.length==0) blockOutput.push('null');
                     if(nodes.length>1) blockOutput.push(')');
-                output.push('p && p.twig_blocks && p.twig_blocks["'+node.block+'"] ? (p.twig_blocks["'+node.block+'"])(p,self_blocks) : ('+blockOutput.join('')+')');
+                output.push('rdrBlockOrSelf(p, blocks["'+node.block+'"], () => ('+blockOutput.join('')+'), ovrrdn)');
                 output.push(',');
 
                 return res;
             }
         } else if(type=='EXPR') {
-            if(node.exprGen=='parent()') {
+            if(node.exprGen=='p.parent()') {
                 let chBlock = node.parent;
                 for ( ; chBlock.logic!='BLOCK' && chBlock.parent ; chBlock = chBlock.parent ) {
                 }
                 if(chBlock.logic=='BLOCK' ) {
-                    output.push('self_blocks["'+chBlock.block+'"]()')
+                    output.push('parentCmp()')
                 }
 
             } else {
@@ -1908,7 +1920,7 @@ module.exports = function (Twig) {
             res.push('"')
             res.push(bn)
             res.push('":')
-            res.push('(bp,self_blocks) => ')
+            res.push('(p,__arg_place__) => ')
             if(blocks[bn].nodes.length>0) {
                 if(blocks[bn].nodes.length>1) res.push('R.c(R.F,null,');
                 res.push('' + this.nodesToSting(blocks[bn].nodes,blocks[bn],Object.assign({skipSub:true},opt)));

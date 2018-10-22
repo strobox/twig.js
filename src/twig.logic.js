@@ -257,7 +257,6 @@ module.exports = function (Twig) {
                 .then(function(o) {
                     context.nodeInContext.exprGen = o.gen;
                     context.nodeInContext.exprRes = o.val;
-                    debugger;
                     return Twig.parseAsync.call(that, token.output, context)
                         .then(function(o) {
                             output.push(o);
