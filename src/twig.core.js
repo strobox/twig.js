@@ -797,7 +797,7 @@ module.exports = function (Twig) {
                     continue;
                 }
                 if(dName=='include') {
-                    replaces.push(`<js_ReactInclude val="${opts.args[0]}" />`);
+                    replaces.push(`<js_ReactInclude val="${opts.args[0]}" src="${opts.args[1]}" />`);
                 } else if(dName=='require') {
                     tpl.requires.push(opts.args[0])
                     replaces.push('');
@@ -1702,19 +1702,24 @@ module.exports = function (Twig) {
             node.output = output.join('');
             return value; //return `"${value}"`;
         } else if(type=='react' && tag!=="js_ReactInclude") { // generation + realtime
-            const hasMutation = type => node.directives && node.directives.mutate && node.directives.mutate.find( m => m.args[0] == type),
-                hasOverride = type => node.directives && node.directives.override && node.directives.override.length && node.directives.override[node.directives.override.length-1],
+            const getFirstDirective = dir => node.directives && node.directives[dir] && node.directives[dir].length && node.directives[dir][node.directives[dir].length-1],
+                hasMutation = type => node.directives && node.directives.mutate && node.directives.mutate.find( m => m.args[0] == type),
                 wrapSelf = hasMutation("wrap-self"),
-                override = hasOverride(),
-                hoc = hasMutation("hoc");
+                override = getFirstDirective("override"),
+                hocFn = getFirstDirective("hoc"),
+                hocProp = hasMutation("hoc");
             let tagOrCmp = mapToPrimitives?htmlTagToPrimitive(tag) : '"'+tag+'"';
+            if(hocFn) {
+                const fn = hocFn.args[0];
+                output.push(` R.c(${fn}( p => `);
+            }
             if(wrapSelf) {
                 const Cmp = wrapSelf.args[1];
                 output.push(`${RCR}p['${Cmp}'] || R.F, p['${Cmp}'] ? p : null, `);
             }
-            if(hoc) {
-                const hocFn = hoc.args[1];
-                output.push(` R.c((p['${hocFn}'] || (eh => eh) )( p => `);
+            if(hocProp) {
+                const hocName = hocProp.args[1];
+                output.push(` R.c((p['${hocName}'] || (eh => eh) )( p => `);
             }
             output.push(RCR)
             let mtion;
@@ -1775,8 +1780,12 @@ module.exports = function (Twig) {
 
             const chlds = this.createChilds(nodes,_props,key,opts,output,true);
             output.push(')');
-            if(hoc) output.push('),p,null)');
+            if(hocProp) output.push('),p,null)');
             if(wrapSelf) output.push(')');
+            if(hocFn) {
+                const fn = hocFn.args[1];
+                output.push(`),p,null)`);
+            }
             output.push(',');
             node.output = output.join('');
 
@@ -1786,8 +1795,11 @@ module.exports = function (Twig) {
         } else if(tag=="js_ReactInclude") {
             try {
                 const Cmp = attrs.val;
-                output.push(`p['${Cmp}'] ? p['${Cmp}'](p) : null `);
-                
+                if(attrs.src && attrs.src == "fromProps")
+                    output.push(`p['${Cmp}'] ? p['${Cmp}'](p) : null `);
+                else 
+                    output.push(RCR+`${Cmp}, p, null) `);
+
             } catch(e) {
                 console.error(e);
                 output.push('null /* error include */')
