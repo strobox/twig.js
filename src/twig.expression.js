@@ -557,7 +557,7 @@ module.exports = function (Twig) {
                 if (token.expression) {
                     return Twig.expression.parseAsync.call(this, token.params, context)
                     .then(function(value) {
-                        stack.push({val:value});
+                        stack.push({val:value,gen:value.gen+')'});
                     });
                 } else {
 
@@ -910,13 +910,13 @@ module.exports = function (Twig) {
 
 
                     // When resolving an expression we need to pass next_token in case the expression is a function
-                    return Twig.expression.resolveAsync.call(that, value, context, params, next_token, object);
+                    return Twig.expression.resolveAsync.call(that, {val:value,gen:''}, context, params, next_token, object);
                 })
                 .then(function(result) {
                     let fCall = ''
                     if(next_token && next_token.type == Twig.expression.type.parameter.end)
-                        fCall = '('+result.gen+')';
-                    stack.push({val:result,gen:poped.gen+'.'+key+fCall});
+                        fCall = '(';
+                    stack.push({val:result.val,gen:poped.gen+'.'+key+fCall});
                 });
             debugger;}
         },
@@ -1313,7 +1313,9 @@ module.exports = function (Twig) {
 
                 if (token_template.parse)
                     result = token_template.parse.call(that, token, stack, context, next_token);
-
+                if(token.type == Twig.expression.type.comma) {
+                    stack[stack.length-1].gen+=',';
+                }
                 //Store any binary tokens for later if we are in a loop.
                 if (token.type === binaryOperator && context.loop) {
                     loop_token_fixups.push(token);
@@ -1342,7 +1344,7 @@ module.exports = function (Twig) {
                 }
 
                 // Pop the final value off the stack
-                return stack.pop();
+                return stack.length > 1 ? {gen:stack.map(s => s.gen).join(''),val:stack.pop().val} : stack.pop();
             });
         });
     };
