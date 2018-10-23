@@ -1701,21 +1701,28 @@ module.exports = function (Twig) {
             output.push(',');
             node.output = output.join('');
             return value; //return `"${value}"`;
-        } else if(type=='react' && tag!=="js_ReactInclude") { // generation + realtime
+        } else if(type=='react') { // generation + realtime
             const getFirstDirective = dir => node.directives && node.directives[dir] && node.directives[dir].length && node.directives[dir][node.directives[dir].length-1],
                 hasMutation = type => node.directives && node.directives.mutate && node.directives.mutate.find( m => m.args[0] == type),
                 wrapSelf = hasMutation("wrap-self"),
                 override = getFirstDirective("override"),
                 hocFn = getFirstDirective("hoc"),
                 hocProp = hasMutation("hoc");
-            let tagOrCmp = mapToPrimitives?htmlTagToPrimitive(tag) : '"'+tag+'"';
+            const isIncl = tag=="js_ReactInclude";
+            let tagOrCmp = !isIncl && mapToPrimitives?htmlTagToPrimitive(tag) : '"'+tag+'"';
             if(hocFn) {
                 const fn = hocFn.args[0];
                 output.push(` R.c(${fn}( p => `);
             }
+            if(isIncl) {
+                if(attrs.src != "fromProps")
+                    tagOrCmp = attrs.val;
+                else
+                    output.push(`p['${attrs.val}'] ? p['${attrs.val}'](p) : `)
+            }
             if(wrapSelf) {
                 const Cmp = wrapSelf.args[1];
-                output.push(`${RCR}p['${Cmp}'] || R.F, p['${Cmp}'] ? p : null, `);
+                output.push(` R.c(p['${Cmp}'] || R.F, p['${Cmp}'] ? p : null, `);
             }
             if(hocProp) {
                 const hocName = hocProp.args[1];
