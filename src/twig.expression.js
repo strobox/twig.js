@@ -553,11 +553,16 @@ module.exports = function (Twig) {
                     array_ended = false,
                     value = null,
                     poped;
-
+                if(stack.length && (!stack[0].val || stack[0].val.type!==Twig.expression.type.parameter.start))
+                        stack[stack.length-1].gen+='('; // if not function but method call (sample: not alert but window.alert )
                 if (token.expression) {
+                    var prevGen = '';
+                    if(stack.length) {
+                        prevGen = stack.pop().gen;
+                    }
                     return Twig.expression.parseAsync.call(this, token.params, context)
                     .then(function(value) {
-                        stack.push({val:value,gen:value.gen+')'});
+                        stack.push({val:value,gen:prevGen + (value ? value.gen : '') +')'});
                     });
                 } else {
 
@@ -715,12 +720,12 @@ module.exports = function (Twig) {
                     } else {
                         value_gen = poped.gen;
                     }
-                    if(!Twig.doeval) continue;
                     // Push values into the array until the start of the object
                     if (token && token.type && token.type === Twig.expression.type.object.start) {
                         object_ended = true;
                         break;
                     }
+                    if(!Twig.doeval) continue;
                     if (token && token.type && (token.type === Twig.expression.type.operator.binary || token.type === Twig.expression.type.operator.unary) && token.key) {
                         if (!has_value) {
                             throw new Twig.Error("Missing value for key '" + token.key + "' in object definition.");
@@ -913,10 +918,7 @@ module.exports = function (Twig) {
                     return Twig.expression.resolveAsync.call(that, {val:value,gen:''}, context, params, next_token, object);
                 })
                 .then(function(result) {
-                    let fCall = ''
-                    if(next_token && next_token.type == Twig.expression.type.parameter.end)
-                        fCall = '(';
-                    stack.push({val:result.val,gen:poped.gen+'.'+key+fCall});
+                    stack.push({val:result.val,gen:poped.gen+'.'+key});
                 });
             debugger;}
         },
@@ -1313,9 +1315,6 @@ module.exports = function (Twig) {
 
                 if (token_template.parse)
                     result = token_template.parse.call(that, token, stack, context, next_token);
-                if(token.type == Twig.expression.type.comma) {
-                    stack[stack.length-1].gen+=',';
-                }
                 //Store any binary tokens for later if we are in a loop.
                 if (token.type === binaryOperator && context.loop) {
                     loop_token_fixups.push(token);
