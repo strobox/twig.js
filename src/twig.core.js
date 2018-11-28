@@ -516,7 +516,7 @@ module.exports = function (Twig) {
     };
 
     Twig.compile = function (tokens) {
-        var self = this;
+        var that = this;
         return Twig.attempt(function() {
 
             // Output and intermediate stacks
@@ -547,7 +547,7 @@ module.exports = function (Twig) {
                 next = null;
 
             var compile_output = function(token) {
-                Twig.expression.compile.call(self, token);
+                Twig.expression.compile.call(that, token);
                 if (stack.length > 0) {
                     intermediate_output.push(token);
                 } else {
@@ -557,7 +557,7 @@ module.exports = function (Twig) {
 
             var compile_logic = function(token) {
                 // Compile the logic token
-                logic_token = Twig.logic.compile.call(self, token);
+                logic_token = Twig.logic.compile.call(that, token);
 
                 type = logic_token.type;
                 open = Twig.logic.handler[type].open;
@@ -638,7 +638,7 @@ module.exports = function (Twig) {
                         break;
 
                     case Twig.token.type.logic:
-                        compile_logic.call(self, token);
+                        compile_logic.call(that, token);
                         break;
 
                     // Do nothing, comments should be ignored
@@ -646,7 +646,7 @@ module.exports = function (Twig) {
                         break;
 
                     case Twig.token.type.output:
-                        compile_output.call(self, token);
+                        compile_output.call(that, token);
                         break;
 
                     //Kill whitespace ahead and behind this token
@@ -691,12 +691,12 @@ module.exports = function (Twig) {
                             case Twig.token.type.output_whitespace_pre:
                             case Twig.token.type.output_whitespace_post:
                             case Twig.token.type.output_whitespace_both:
-                                compile_output.call(self, token);
+                                compile_output.call(that, token);
                                 break;
                             case Twig.token.type.logic_whitespace_pre:
                             case Twig.token.type.logic_whitespace_post:
                             case Twig.token.type.logic_whitespace_both:
-                                compile_logic.call(self, token);
+                                compile_logic.call(that, token);
                                 break;
                         }
 
@@ -732,15 +732,15 @@ module.exports = function (Twig) {
             }
             return output;
         }, function(ex) {
-            if (self.options.rethrow) {
+            if (that.options.rethrow) {
                 if (ex.type == 'TwigException' && !ex.file) {
-                    ex.file = self.id;
+                    ex.file = that.id;
                 }
 
                 throw ex
             }
             else {
-                Twig.log.error("Error compiling twig template " + self.id + ": ");
+                Twig.log.error("Error compiling twig template " + that.id + ": ");
                 if (ex.stack) {
                     Twig.log.error(ex.stack);
                 } else {
@@ -777,7 +777,7 @@ module.exports = function (Twig) {
     }
     const cmntRe = /<!--([\s\S]*?)-->/g,
         dirRe = /[\s-]@([\w_$][\w\d_$]+)\s*\[(.*?)\]/;
-    function processComentsParse(tpl,token_value,directives) {
+    function processComentsParse(tpl,token_value,directives,context) {
         const cmnts = [], replaces = [];
         let nextCmnt, nextDir, dName;
         while((nextCmnt = cmntRe.exec(token_value)) !== null) {
@@ -799,7 +799,14 @@ module.exports = function (Twig) {
                 if(dName=='include') {
                     replaces.push(`<js_ReactInclude val="${opts.args[0]}" src="${opts.args[1]}" />`);
                 } else if(dName=='require') {
-                    tpl.requires.push(opts.args[0])
+                    const reqStr = opts.args[0];
+                    tpl.requires.push(reqStr);
+                    try {
+                        const imports = reqStr.match(/import(.*)from\s+['"]/)[1].replace(/[,\{\}]/g,' ').replace(/\s+/g,' ').trim().split(' ');
+                        context._$local_scope = context._$local_scope.concat(imports);
+                    } catch(e) {
+                        console.error(e);
+                    }
                     replaces.push('');
                 } else {
                     if(!directives[dName]) directives[dName] = [];
@@ -898,6 +905,12 @@ module.exports = function (Twig) {
                         }
                     }
                     const styleReg = /<(style)(.*)>([\s\S]*)<\/\1>/;
+                    const scriptReg = /<(js_script)(.*)>([\s\S]*)<\/\1>/;
+                    let scriptMatch;
+                    if(scriptMatch = token_value.match(scriptReg)) {
+                        token_value = token_value.replace(scriptReg,'');
+                        that.rawScripts.push(scriptMatch[3]);
+                    }
                     let styleMatch;
                     if(styleMatch = token_value.match(styleReg)) {
                         token_value = token_value.replace(styleReg,'<style_place/>');
@@ -913,7 +926,7 @@ module.exports = function (Twig) {
                         that.styleBlocks.push(styleDet);
                     }
                     try {
-                        token_value = processComentsParse(that,token_value,directives);
+                        token_value = processComentsParse(that,token_value,directives,context);
                     } catch(e){ 
                         console.error(e);
                     }
@@ -1072,7 +1085,7 @@ module.exports = function (Twig) {
                     if(!wasMatch && token_value_trim.length) {
                         if(token_value_trim.slice(-1).match(/[">]/) || token_value_trim[0]=='"') {
                             parsePropsAttrs(token_value_trim,false,tree._focusedNode);
-                            if(token_value.trim().slice(-2,-1)=="/" && token_value.indexOf("<")<0 ) { // for self close tag
+                            if(token_value.trim().slice(-2,-1)=="/" && token_value.indexOf("<")<0 ) { // for that close tag
                                 _prevOpenTags.pop();
                                 openTagCnt--;
                                 finishCplxAttr(tree._focusedNode);
@@ -1487,6 +1500,7 @@ module.exports = function (Twig) {
             blocks = params.blocks,
             includes = {},
             styleBlocks = [],
+            rawScripts = [],
             requires = [],
             macros = params.macros || {},
             base = params.base,
@@ -1542,6 +1556,7 @@ module.exports = function (Twig) {
         this.blocks = {};
         this.includes = {};
         this.styleBlocks = [];
+        this.rawScripts = [];
         this.requires = [];
         this.importedBlocks = [];
         this.originalBlockTokens = {};
@@ -1704,7 +1719,7 @@ module.exports = function (Twig) {
         } else if(type=='react') { // generation + realtime
             const getFirstDirective = dir => node.directives && node.directives[dir] && node.directives[dir].length && node.directives[dir][node.directives[dir].length-1],
                 hasMutation = type => node.directives && node.directives.mutate && node.directives.mutate.find( m => m.args[0] == type),
-                wrapSelf = hasMutation("wrap-self"),
+                wrapSelf = hasMutation("wrap-that"),
                 override = getFirstDirective("override"),
                 hocFn = getFirstDirective("hoc"),
                 hocProp = hasMutation("hoc");
@@ -1717,8 +1732,10 @@ module.exports = function (Twig) {
             if(isIncl) {
                 if(attrs.src != "fromProps")
                     tagOrCmp = attrs.val;
-                else
+                else {
+                    tagOrCmp = "p => 'Error include: ' + p.val"; // TODO warn only on dev mode, else only console warn
                     output.push(`p['${attrs.val}'] ? p['${attrs.val}'](p) : `)
+                }
             }
             if(wrapSelf) {
                 const Cmp = wrapSelf.args[1];
@@ -1985,7 +2002,7 @@ module.exports = function (Twig) {
     }
 
     Twig.Template.prototype.getReactComp = function (contextAndOpt, params, allow_async) {
-
+        contextAndOpt._$local_scope = contextAndOpt._$local_scope = [];
         const {tree } = this.render(contextAndOpt, params, allow_async);
         const res = this.nodesToComponent(tree, Object.assign({},params,contextAndOpt),this.isExtend);
         res.tree = tree;

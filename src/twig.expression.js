@@ -830,8 +830,11 @@ module.exports = function (Twig) {
                     return {val:value,gen:params.map( p => p.gen).join(',')};
                 })
                 .then(function(result) {
-                    const propOrNo = context._$not_props && context._$not_props.indexOf(token.value)>=0 ?
+                    const isNotProp = context._$not_props && context._$not_props.indexOf(token.value)>=0;
+                    let propOrNo = isNotProp ?
                         '' : 'p.';
+                    if(context._$local_scope.indexOf(fn)>=0 && !isNotProp )
+                        propOrNo = fn + '||'+propOrNo;
                     stack.push({val:result,gen:propOrNo+fn+'('+result.gen+')'});
                 });
             }
@@ -859,8 +862,11 @@ module.exports = function (Twig) {
                 // Get the variable from the context
                 return Twig.expression.resolveAsync.call(this, context[token.value], context)
                 .then(function(value) {
-                    const propOrNo = context._$not_props && context._$not_props.indexOf(token.value)>=0 ?
+                    const isNotProp = context._$not_props && context._$not_props.indexOf(token.value)>=0;
+                    let propOrNo = isNotProp ?
                         '' : 'p.';
+                    if(context._$local_scope.indexOf(token.value)>=0 && !isNotProp )
+                        propOrNo = token.value + '||'+propOrNo;
                     stack.push({val:value,gen:propOrNo+token.value});
                 });
             debugger;}
