@@ -1940,7 +1940,7 @@ module.exports = function (Twig) {
             if(key_var) output.push(` const key = ${value_var}.${key_var} || idx;`);
             else output.push(` const key = idx;`);
             output.push('const res = ');
-            if(nodes.length>1) output.push('R.c(R.F,null,');
+            if(nodes.length>1) output.push('R.c(R.F,{key},');
             this.createChilds(nodes,_props,key,opts,output,false,true);
             if(nodes.length>1) output.push(')');
             output.push('; return res;})');
