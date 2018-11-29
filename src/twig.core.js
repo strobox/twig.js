@@ -823,7 +823,7 @@ module.exports = function (Twig) {
         }
         // console.log(cmnts)
         let i = 0;
-        if(replaces.length) console.log(replaces);
+        // if(replaces.length) console.log(replaces);
         return replaces.length ? token_value.replace(cmntRe, () => replaces[i++]) : token_value;
     }
     /**
@@ -1759,7 +1759,8 @@ module.exports = function (Twig) {
                 const Cmp = mtion.args[1];
                 replMutation = ` p['${Cmp}'] || `;
             }
-            if(typeof node.styleId == "undefined") {
+            const isStyled = typeof node.styleId != "undefined";
+            if(!isStyled) {
                 output.push(overridenTagOrCmp || (replMutation + tagOrCmp))
             } else {
                 let StlTag = `StyledCmp_${this.styleBlocks[node.styleId].name || node.styleId}`;
@@ -1787,15 +1788,16 @@ module.exports = function (Twig) {
             }
             output.push(',')
             const propsOut = ['{'];
+            if(isStyled) propsOut.push("...p,");
             const staticProps = stringifyProps(attrs,propsOut);
             const exprProps = stringifyExprProps(attrWithExpr,propsOut,opts);
             propsOut.pop();
-            const propsStr = propsOut.length > 1 ? propsOut.join('')+'}' : 'null';
+            const propsStr = propsOut.length > 1 ? propsOut.join('')+'}' : (isStyled ? '{...p}' : 'null');
             if(loopOutput || (override && override.args[1])) {
                 output.push('Object.assign(');
                 if(loopOutput) output.push('{key},');
                 if(override && override.args[1]) output.push(override.args[1]+',');
-                if(preservedCmpProp) output.push( '{'+preservedCmpProp+': '+tagOrCmp+'},')
+                if(preservedCmpProp) output.push( '{'+preservedCmpProp+': '+tagOrCmp+',...p},')
                 output.push(`${propsStr})`);
             } else {
                 output.push(propsStr);
