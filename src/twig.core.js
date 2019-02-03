@@ -1919,16 +1919,15 @@ module.exports = function (Twig) {
         }
         if(!output.noOutput && logic=="INCLUDE") { // generation
             const tplAlias = node.inclAlias;
-            output.push(tplAlias);
+            output.push('R.c('+tplAlias+',');
             if(node.withContext) {
-                output.push('(');
                 output.push('Object.assign(');
                 output.push(node.withContext);
                 output.push(',p)');
-                output.push(')');
             } else {
-                output.push('(p)');
+                output.push('p');
             }
+            output.push(')');
             output.push(',');
             
         }
