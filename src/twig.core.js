@@ -7,6 +7,9 @@ module.exports = function (Twig) {
     Twig.trace = false;
     Twig.debug = false;
 
+    Twig.mytrace = false;
+    Twig.mydebug = false;
+
     // Default caching to true for the improved performance it offers
     Twig.cache = true;
 
@@ -163,6 +166,11 @@ module.exports = function (Twig) {
     Twig.log = {
         trace: function() {if (Twig.trace && console) {console.log(Array.prototype.slice.call(arguments));}},
         debug: function() {if (Twig.debug && console) {console.log(Array.prototype.slice.call(arguments));}}
+    };
+
+    Twig.mylog = {
+        trace: function() {if (Twig.mytrace && console) {console.log.apply(console,arguments);}},
+        debug: function() {if (Twig.mydebug && console) {console.log.apply(console,arguments);}}
     };
 
 
@@ -508,7 +516,7 @@ module.exports = function (Twig) {
     };
 
     Twig.compile = function (tokens) {
-        var self = this;
+        var that = this;
         return Twig.attempt(function() {
 
             // Output and intermediate stacks
@@ -539,7 +547,7 @@ module.exports = function (Twig) {
                 next = null;
 
             var compile_output = function(token) {
-                Twig.expression.compile.call(self, token);
+                Twig.expression.compile.call(that, token);
                 if (stack.length > 0) {
                     intermediate_output.push(token);
                 } else {
@@ -549,7 +557,7 @@ module.exports = function (Twig) {
 
             var compile_logic = function(token) {
                 // Compile the logic token
-                logic_token = Twig.logic.compile.call(self, token);
+                logic_token = Twig.logic.compile.call(that, token);
 
                 type = logic_token.type;
                 open = Twig.logic.handler[type].open;
@@ -630,7 +638,7 @@ module.exports = function (Twig) {
                         break;
 
                     case Twig.token.type.logic:
-                        compile_logic.call(self, token);
+                        compile_logic.call(that, token);
                         break;
 
                     // Do nothing, comments should be ignored
@@ -638,7 +646,7 @@ module.exports = function (Twig) {
                         break;
 
                     case Twig.token.type.output:
-                        compile_output.call(self, token);
+                        compile_output.call(that, token);
                         break;
 
                     //Kill whitespace ahead and behind this token
@@ -683,12 +691,12 @@ module.exports = function (Twig) {
                             case Twig.token.type.output_whitespace_pre:
                             case Twig.token.type.output_whitespace_post:
                             case Twig.token.type.output_whitespace_both:
-                                compile_output.call(self, token);
+                                compile_output.call(that, token);
                                 break;
                             case Twig.token.type.logic_whitespace_pre:
                             case Twig.token.type.logic_whitespace_post:
                             case Twig.token.type.logic_whitespace_both:
-                                compile_logic.call(self, token);
+                                compile_logic.call(that, token);
                                 break;
                         }
 
@@ -724,15 +732,15 @@ module.exports = function (Twig) {
             }
             return output;
         }, function(ex) {
-            if (self.options.rethrow) {
+            if (that.options.rethrow) {
                 if (ex.type == 'TwigException' && !ex.file) {
-                    ex.file = self.id;
+                    ex.file = that.id;
                 }
 
                 throw ex
             }
             else {
-                Twig.log.error("Error compiling twig template " + self.id + ": ");
+                Twig.log.error("Error compiling twig template " + that.id + ": ");
                 if (ex.stack) {
                     Twig.log.error(ex.stack);
                 } else {
@@ -767,7 +775,57 @@ module.exports = function (Twig) {
             }
         }
     }
+    const cmntRe = /<!--([\s\S]*?)-->/g,
+        dirRe = /[\s-]@([\w_$][\w\d_$]+)\s*\[(.*?)\]/;
+    function processComentsParse(tpl,token_value,directives,context) {
+        const cmnts = [], replaces = [];
+        let nextCmnt, nextDir, dName;
+        while((nextCmnt = cmntRe.exec(token_value)) !== null) {
+            if(!nextCmnt[1]) {
+                replaces.push('')
+                continue;
+            }
+            nextDir = nextCmnt[1].match(dirRe);
+            if(nextDir && (dName = nextDir[1])) {
+                let opts, argsStr = nextDir[2];
+                try {
+                    argsStr = argsStr.replace( /(["'])(?:(?=(\\?))\2[\s\S])*?\1/g, m => m.replace(/(^'|'$)/g,'"') )
+                    opts = JSON.parse('{"args":['+argsStr+']}');
+                } catch(e) {
+                    console.error('Bad directive: ',e);
+                    replaces.push('')
+                    continue;
+                }
+                if(dName=='include') {
+                    replaces.push(`<js_ReactInclude val="${opts.args[0]}" src="${opts.args[1]}" />`);
+                } else if(dName=='require') {
+                    const reqStr = opts.args[0];
+                    tpl.requires.push(reqStr);
+                    try {
+                        const imports = reqStr.match(/import(.*)from\s+['"]/)[1].replace(/[,\{\}]/g,' ').replace(/\s+/g,' ').trim().split(' ');
+                        context._$local_scope = context._$local_scope.concat(imports);
+                    } catch(e) {
+                        console.error(e);
+                    }
+                    replaces.push('');
+                } else {
+                    if(!directives[dName]) directives[dName] = [];
+                    directives[dName].push(opts);
+                    replaces.push('');
 
+                }
+
+            } else {
+                replaces.push('');
+            }
+
+            // cmnts.push(nextCmnt);
+        }
+        // console.log(cmnts)
+        let i = 0;
+        // if(replaces.length) console.log(replaces);
+        return replaces.length ? token_value.replace(cmntRe, () => replaces[i++]) : token_value;
+    }
     /**
      * Parse a compiled template.
      *
@@ -776,10 +834,17 @@ module.exports = function (Twig) {
      *
      * @return {string} The parsed template.
      */
+    function finishCplxAttr(obj) {
+        if(!obj.lastCplxAtrr) return;
+        if(obj.attrWithExpr[obj.lastCplxAtrr.tag]) {
+            console.warn('Attribute will be overriden!',obj.lastCplxAtrr.tag);
+        }
+        obj.attrWithExpr[obj.lastCplxAtrr.tag] = obj.lastCplxAtrr;
+    }
     Twig.parse = function (tokens, context, allow_async) {
         var that = this,
             output = [],
-
+            tree = context.nodeInContext || {path:'ROOT',nodes:[]},
             // Store any error that might be thrown by the promise chain.
             err = null,
 
@@ -789,7 +854,8 @@ module.exports = function (Twig) {
 
             // Track logic chains
             chain = true;
-
+            if(!context.nodeInContext && !tree.parent) tree.parent = tree;
+            if(!context.nodeInContext && !tree._focusedNode) tree._focusedNode = tree;
         /*
          * Extracted into it's own function such that the function
          * does not get recreated over and over again in the `forEach`
@@ -809,18 +875,253 @@ module.exports = function (Twig) {
                 output.push(logic.output);
             }
         }
-
+        function tnSantize(obj,t) {
+            if(!t) return;
+            const value = t.replace(/^[\r\n]+\s*/,"").replace(/\s*[\r\n]+\s*$/,"")
+                .replace(/[\r\n]+/g,"\n").replace(/"/g,'\\"');
+            if(!value) return;
+            obj.nodes.push( {type:"text_node",value})
+        }
+        let  _prevOpenTags = [];
         promise = Twig.async.forEach(tokens, function parseToken(token) {
-            Twig.log.debug("Twig.parse: ", "Parsing token: ", token);
+            Twig.mylog.debug("Twig.parse: ", "Parsing token: ", token);
 
             switch (token.type) {
                 case Twig.token.type.raw:
-                    output.push(Twig.filters.raw(token.value));
+                    //output.push(Twig.filters.raw(token.value));
+                    let nextElObj, props;
+                    // ? - possible
+                    // (1,2: any str without > < ) till open < or (3: possible close tag)
+                    // (4: \w+) - tag name; (5: all rest string) till next tag /*open or close*/ ) 
+                    const regTag = /([^<>]*)>?([^<>]*)<(\/?)(\w+)([^<]*)/g;
+                    let result, afterTagName, textCnt, propsRes, styleId,
+                        openTagCnt = 0, token_value = token.value,
+                        wasMatch = false, directives = {};
+
+                    function processDirectives() {
+                        if(Object.keys(directives)) {
+                            if(nextElObj) nextElObj.directives = directives;
+                            directives = {};
+                        }
+                    }
+                    const styleReg = /<(style)(.*)>([\s\S]*)<\/\1>/;
+                    const scriptReg = /<(js_script)(.*)>([\s\S]*)<\/\1>/;
+                    let scriptMatch;
+                    if(scriptMatch = token_value.match(scriptReg)) {
+                        token_value = token_value.replace(scriptReg,'');
+                        that.rawScripts.push(scriptMatch[3]);
+                    }
+                    let styleMatch;
+                    if(styleMatch = token_value.match(styleReg)) {
+                        token_value = token_value.replace(styleReg,'<style_place/>');
+                        styleId = that.styleBlocks.length;
+                        const styleDet = {css:styleMatch[3]};
+                        let styleNameMtch;
+                        if( styleMatch[2] && (styleNameMtch = styleMatch[2].match(/name=['"](.*)['"]/)) ) {
+                            styleDet.name = styleNameMtch[1];
+                        }
+                        if( styleMatch[2] && (styleNameMtch = styleMatch[2].match(/extends=['"](.*)['"]/)) ) {
+                            styleDet.extName = styleNameMtch[1];
+                        }
+                        that.styleBlocks.push(styleDet);
+                    }
+                    try {
+                        token_value = processComentsParse(that,token_value,directives,context);
+                    } catch(e){ 
+                        console.error(e);
+                    }
+                    Twig.mylog.trace('<---',token.value,'--->');
+                    // responsible for tag (react els) createion, text nodes, and mutliple attributes in inner match
+
+                    function parsePropsAttrs(attrPart, whole, obj) {
+                        if(!attrPart) return;
+                        attrPart= " " + attrPart; // for fist tag match expression
+                        // extractAllPlaint attrs
+                        const attrRe = /( (([\w-]+)=['"])(.+?)['"])/g
+                        while((propsRes = attrRe.exec(attrPart)) !== null) {
+                           const propName = propsRes[3] == "class" ? "className" : propsRes[3];
+                           obj.attrs[propName] = propsRes[4];
+                          
+                        }
+                        attrPart = attrPart.slice(1); // remove previously added space " "
+                        var cplxReStart = /([\w-]+)="([^"]*)$/, cplxReEnd = /^((?!=").)*(?=")/;
+                        var cplxStart = attrPart.match(cplxReStart), cplxEnd = attrPart.match(cplxReEnd);
+                        if(!whole) {
+                            if(cplxEnd) {
+                                if(!obj.lastCplxAtrr)
+                                    console.warn('Unexpected',cplxEnd,obj.lastCplxAtrr);
+                                else {
+                                    if(cplxEnd[1]) {
+                                        obj.lastCplxAtrr.items.push({type:'text',value:cplxEnd[0]});
+                                    }
+                                    Twig.mylog.debug('>> Saved cplx attr on end',obj.lastCplxAtrr);
+                                    finishCplxAttr(obj);
+                                    delete obj.lastCplxAtrr;
+                                }
+                            } else if(obj.lastCplxAtrr && !cplxEnd) {
+                                console.warn('Unexpected lastCplxAtrr w/o end')
+                            } 
+                            if(cplxStart) {
+                                if(obj.lastCplxAtrr) {
+                                    Twig.mylog.debug('>> Saved cplx attr before new',obj.lastCplxAtrr);
+                                    finishCplxAttr(obj);
+                                }
+                                obj.lastCplxAtrr = {
+                                    tag: cplxStart[1] == 'class' ? 'className' : cplxStart[1],
+                                    items: cplxStart[2] ? [ {type:'text',value:cplxStart[2]}] : []
+                                };
+
+                            }
+                        } else if(cplxStart || cplxEnd) {
+                            console.warn('Unecpected Markup',attrPart,cplxStart,cplxEnd);
+                        }
+                    }
+
+                    while((result = regTag.exec(token_value)) !== null) {
+                        wasMatch = true;
+                        const res0wsp = result[0], res0 = res0wsp.trim();
+                        const res1wsp = result[1], res1 = res1wsp.trim();
+                        const res2wsp = result[2], res2 = res2wsp.trim();
+                        const res3 = result[3];
+                        const res4wsp = result[4], res4 = res4wsp.trim();
+
+                        propsRes = "";
+                        textCnt = "";
+
+
+                        //Twig.mylog.debug('res0 ',res0);
+
+                        if(_prevOpenTags.length && "</"==res0.slice(0,2) && _prevOpenTags[_prevOpenTags.length-1] == res4) {  // closing tag
+                                _prevOpenTags.pop();
+                                openTagCnt--;
+                                finishCplxAttr(tree._focusedNode);
+                                delete tree._focusedNode.lastCplxAtrr;
+
+                                tree._focusedNode = tree._focusedNode.parent;
+                                let textPart;
+                                if(result[5] && (textPart = result[5].slice(1).trim()).length) {
+                                    tnSantize(tree._focusedNode,textPart)
+
+                                }
+                                Twig.mylog.debug('Close tag and continue')
+                                continue;
+                        }
+
+
+                        let restText = res1;
+                        if(res2wsp || res1wsp) {
+
+                            if(res2wsp) { // than res1 is rest attribute part of opened tag, res2 is rest text
+                                parsePropsAttrs(res1,false,tree._focusedNode);
+                                restText = res2;
+                            } /* else { */ // else res1 is rest text
+                            
+                            if(restText)
+                                tnSantize(tree._focusedNode,restText);
+
+                        }
+
+                        if(res3=="/"||res1.slice(-1)=="/") {
+                            _prevOpenTags.pop();
+                            openTagCnt--;
+                            finishCplxAttr(tree._focusedNode);
+                            delete tree._focusedNode.lastCplxAtrr;
+                            tree._focusedNode = tree._focusedNode.parent;
+
+                            Twig.mylog.trace('Close tag and continue')
+                            if(res3=="/")   continue;
+                        }
+                        afterTagName = result[5] /* ? result[5].trim() : null */;
+
+                        let WHOLE = false;
+                        let WHOLE_SELF_CLOSE = false;
+                        Twig.mylog.trace('atg: ',afterTagName);
+                        const cltagp = afterTagName.indexOf('>');
+                        let attrPart = "";
+                        if(cltagp>=0) { // have full tag, and maybee text after it
+                            WHOLE = true;
+                            if(cltagp!=afterTagName.length-1) { // yes, have text
+                                textCnt = afterTagName.slice(cltagp+1);
+                            }
+                            if(afterTagName[cltagp-1]=="/") {
+                                WHOLE_SELF_CLOSE = true;
+                                if(res4 == 'style_place') {
+                                    tree._focusedNode.styleId = styleId;
+                                    styleId= undefined;
+                                    continue;
+                                }
+                            }
+                            attrPart = afterTagName.slice(0, cltagp - (WHOLE_SELF_CLOSE?1:0)).trim();
+                        } else {
+                            attrPart = afterTagName;
+                        }
+
+                        Twig.mylog.trace('attr: ',attrPart);
+
+                        nextElObj = {parent:tree._focusedNode,path:tree._focusedNode.path+'['+tree._focusedNode.nodes.length+']/',nodes:[]};
+                        processDirectives();
+                        tree._focusedNode.nodes.push(nextElObj);
+                        nextElObj.tag = res4;
+                        nextElObj.path+= res4;
+                        nextElObj.type = 'react';
+                        nextElObj.attrWithExpr = {};
+                        nextElObj.attrs = {};
+                        if(attrPart) {
+                           parsePropsAttrs(attrPart,WHOLE,nextElObj);
+                        } 
+                        if(textCnt) {
+                            tnSantize(nextElObj,textCnt);
+                        }
+                        
+                        if(!WHOLE_SELF_CLOSE) {
+                            tree._focusedNode = nextElObj;
+                            _prevOpenTags.push(res4);
+                            openTagCnt++;
+                        }
+ 
+                    }
+                    const token_value_trim = token_value.trim();
+
+                    if(!wasMatch && token_value_trim.length) {
+                        if(token_value_trim.slice(-1).match(/[">]/) || token_value_trim[0]=='"') {
+                            parsePropsAttrs(token_value_trim,false,tree._focusedNode);
+                            if(token_value.trim().slice(-2,-1)=="/" && token_value.indexOf("<")<0 ) { // for that close tag
+                                _prevOpenTags.pop();
+                                openTagCnt--;
+                                finishCplxAttr(tree._focusedNode);
+                                delete tree._focusedNode.lastCplxAtrr;
+                                tree._focusedNode = tree._focusedNode.parent;
+                            }
+
+                        }
+                        else
+                            tnSantize(tree._focusedNode,token.value)
+                    }
+
+
+                    
                     break;
 
                 case Twig.token.type.logic:
-                    return Twig.logic.parseAsync.call(that, token.token /*logic_token*/, context, chain)
-                        .then(parseTokenLogic);
+
+                    const logicType = token.token.type.split('.').pop().toUpperCase();
+                    var inner_context = Twig.ChildContext(context);
+                    const nextObj = {type:'LOGIC',logic: logicType ,parent:tree._focusedNode,path:tree._focusedNode.path+'['+tree._focusedNode.nodes.length+']/'+logicType,nodes:[]};
+                    tree._focusedNode.nodes.push(nextObj);
+                    tree._focusedNode = nextObj
+                    nextObj._focusedNode = nextObj;
+                    inner_context.nodeInContext = nextObj;
+                    return Twig.logic.parseAsync.call(that, token.token /*logic_token*/, inner_context, chain)
+                        .then(parseTokenLogic).then(function() {
+                                // Delete loop-related variables from the context
+                                delete nextObj['_focusedNode'];
+                                delete inner_context['nodeInContext'];
+                                tree._focusedNode = nextObj.parent;
+
+                                // Merge in values that exist in context but have changed
+                                // in inner_context.
+                                Twig.merge(context, inner_context, true);
+                        });
                     break;
 
                 case Twig.token.type.comment:
@@ -834,14 +1135,29 @@ module.exports = function (Twig) {
                 case Twig.token.type.output:
                     Twig.log.debug("Twig.parse: ", "Output token: ", token.stack);
                     // Parse the given expression in the given context
+
                     return Twig.expression.parseAsync.call(that, token.stack, context)
-                        .then(output_push);
+                        .then( o => {
+                            if(tree._focusedNode.lastCplxAtrr) {
+                                tree._focusedNode.lastCplxAtrr.items.push(
+                                    {type:'expr',value:o.gen,exprRes:o.val});
+                            } else {
+                                tree._focusedNode.nodes.push({
+                                    type:"EXPR",
+                                    parent:tree._focusedNode,
+                                    path:tree._focusedNode.path+'[EXPR]',
+                                    exprGen: o.gen,
+                                    exprRes:o.val
+                                })
+                            }
+                        });
             }
         })
         .then(function() {
-            output = Twig.output.call(that, output);
+            //output = Twig.output.call(that, output);
             is_async = false;
-            return output;
+            delete tree._focusedNode;
+            return {originalOutput:output,tree};
         })
         .catch(function(e) {
             if (allow_async)
@@ -1182,6 +1498,10 @@ module.exports = function (Twig) {
         var data = params.data,
             id = params.id,
             blocks = params.blocks,
+            includes = {},
+            styleBlocks = [],
+            rawScripts = [],
+            requires = [],
             macros = params.macros || {},
             base = params.base,
             path = params.path,
@@ -1234,6 +1554,10 @@ module.exports = function (Twig) {
     Twig.Template.prototype.reset = function(blocks) {
         Twig.log.debug("Twig.Template.reset", "Reseting template " + this.id);
         this.blocks = {};
+        this.includes = {};
+        this.styleBlocks = [];
+        this.rawScripts = [];
+        this.requires = [];
         this.importedBlocks = [];
         this.originalBlockTokens = {};
         this.child = {
@@ -1243,10 +1567,10 @@ module.exports = function (Twig) {
         this.parseStack = [];
     };
 
-    Twig.Template.prototype.render = function (context, params, allow_async) {
+    Twig.Template.prototype.render = function (defProps, params, allow_async) {
         var that = this;
 
-        this.context = context || {};
+        this.defProps = defProps || {};
 
         // Clear any previous state
         this.reset();
@@ -1258,13 +1582,13 @@ module.exports = function (Twig) {
         }
 
         return Twig.async.potentiallyAsync(this, allow_async, function() {
-            return Twig.parseAsync.call(this, this.tokens, this.context)
+            return Twig.parseAsync.call(this, this.tokens, this.defProps)
             .then(function(output) {
                 var ext_template,
                     url;
 
                 // Does this template extend another
-                if (that.extend) {
+                if (that.extend) {/* 
 
                     // check if the template is provided inline
                     if ( that.options.allowInlineIncludes ) {
@@ -1289,10 +1613,12 @@ module.exports = function (Twig) {
 
                     that.parent = ext_template;
 
-                    return that.parent.renderAsync(that.context, {
+                    return that.parent.renderAsync(that.defProps, {
                         blocks: that.blocks
                     });
-                }
+                 */}
+                output.getReactComp = that.getReactComp.bind(that);
+                return output;
 
                 if (!params) {
                     return output.valueOf();
@@ -1305,6 +1631,383 @@ module.exports = function (Twig) {
                 }
             });
         });
+    };
+    function closeIfElse(output,node,onParentEnd,isElse) {
+        Array.prototype.push.apply(output, node.ifElseStrBuild)
+        if(!isElse) output.push(',{elem:()=>null,cond: p=>true }');
+        output.push('].find( c => !!c.cond(p)).elem(p)')
+        if(!onParentEnd || node.parent!=node) { // not on ROOT end (reverse of onParentEnd && node.parent==node)
+            output.push(',');
+        }
+        delete node.ifElseStrBuild;
+    }
+
+    Twig.Template.prototype.afterNode  = function(output,node,res) {
+        if(node.parent && node.parent.ifElseStrBuild && node.parent.nodes[node.parent.nodes.length-1]==node) {
+            closeIfElse(output,node.parent,true);
+        } 
+        return res;
+    }
+
+    Twig.Template.prototype.createChilds = function(nodes,_props,key,opts,output,isReactChild,loopOutput) {
+        const {React,inh} = opts;
+
+        if(nodes.length > 1) {
+            // return `,[${nodes.map(b => this.afterNode(output,b,this.nodeToEl(b))).join(', ')}]`
+            if(isReactChild) output.push(',')
+            const resNodes = nodes.map(b => this.afterNode(output,b,this.nodeToEl(b,_props,key,opts,output,loopOutput)))
+            output.pop();
+            return resNodes;
+        } else if(nodes.length==1) {
+            // return ',' + this.afterNode(output,nodes[0],this.nodeToEl(nodes[0]))
+            if(isReactChild) output.push(',')
+            const resEl = this.afterNode(output,nodes[0],this.nodeToEl(nodes[0],_props,key,opts,output,loopOutput))
+            output.pop();
+            return resEl;
+        } else {
+            // return '';
+        }
+    }
+
+    //const RCR = 'React.createElement('
+    function stringifyProps(props,output) {
+        for( let pk in props) {
+            output.push('"' + pk + '":');
+            output.push('"' +props[pk] + '"');
+            output.push(',');
+        }
+    }
+
+    function stringifyExprProps(props,output,opts) {
+        for( let pk in props) {
+            output.push('"' + pk + '":');
+            for (var i = 0; i < props[pk].items.length; i++) {
+                let exprOrText = props[pk].items[i], propExpr = exprOrText.value;
+
+                output.push(exprOrText.type == 'text' ? '"' + propExpr + '"' : propExpr);
+                output.push(" + ");
+            }
+            if(props[pk].items.length>0) output.pop();
+            output.push(',');
+        }
+    }
+    function htmlTagToPrimitive(tag) {
+        let p = 'primi.';
+        switch (tag) {
+            case 'a': p+='Touchabale'; break;
+            default: p+='View'
+        }
+        return p;
+    }
+    const RCR = 'R.c('
+    Twig.Template.prototype.nodeToEl = function(node,_props,key,opts,output,loopOutput) {
+        const {React,inh,skipSub,mapToPrimitives} = opts;
+        const {type,value,logic,parent,forLoopCfg,tag,attrs,/* attrExpr, */attrWithExpr,nodes} = node;
+        if(!output.noOutput && parent && type!='LOGIC' && parent.ifElseStrBuild) {
+            closeIfElse(output,parent);
+        }
+        if(type=='text_node') { // generation + realtime
+            if(mapToPrimitives) {
+                output.push(RCR);
+                output.push('primi.Text,null,"'+value+'")');
+            } else {
+                output.push('"'+value+'"');
+            }
+            output.push(',');
+            node.output = output.join('');
+            return value; //return `"${value}"`;
+        } else if(type=='react') { // generation + realtime
+            const getFirstDirective = dir => node.directives && node.directives[dir] && node.directives[dir].length && node.directives[dir][node.directives[dir].length-1],
+                hasMutation = type => node.directives && node.directives.mutate && node.directives.mutate.find( m => m.args[0] == type),
+                wrapSelf = hasMutation("wrap-that"),
+                override = getFirstDirective("override"),
+                hocFn = getFirstDirective("hoc"),
+                hocProp = hasMutation("hoc");
+            const isIncl = tag=="js_ReactInclude";
+            let tagOrCmp = !isIncl && mapToPrimitives?htmlTagToPrimitive(tag) : '"'+tag+'"';
+            if(hocFn) {
+                const fn = hocFn.args[0];
+                output.push(` R.c(${fn}( p => `);
+            }
+            if(isIncl) {
+                if(attrs.src != "fromProps")
+                    tagOrCmp = attrs.val;
+                else {
+                    tagOrCmp = "p => 'Error include: ' + p.val"; // TODO warn only on dev mode, else only console warn
+                    output.push(`p['${attrs.val}'] ? p['${attrs.val}'](p) : `)
+                }
+            }
+            if(wrapSelf) {
+                const Cmp = wrapSelf.args[1];
+                output.push(` R.c(p['${Cmp}'] || R.F, p['${Cmp}'] ? p : null, `);
+            }
+            if(hocProp) {
+                const hocName = hocProp.args[1];
+                output.push(` R.c((p['${hocName}'] || (eh => eh) )( p => `);
+            }
+            output.push(RCR)
+            let mtion;
+            let overridenTagOrCmp, preservedCmpProp;
+            if(override) {
+                overridenTagOrCmp = override.args[0];
+                if(override.args[2]) {
+                    preservedCmpProp = override.args[2];
+                }
+            } 
+            let replMutation = '';
+            if(mtion = hasMutation("replace-tag") ) {
+                const Cmp = mtion.args[1];
+                replMutation = ` p['${Cmp}'] || `;
+            }
+            const isStyled = typeof node.styleId != "undefined";
+            if(!isStyled) {
+                output.push(overridenTagOrCmp || (replMutation + tagOrCmp))
+            } else {
+                let StlTag = `StyledCmp_${this.styleBlocks[node.styleId].name || node.styleId}`;
+                if(Object.keys(this.blocks).length && this.styleBlocks[node.styleId].name && !this.isExtend) {
+                    StlTag = 'ovrrdn && ovrrdn.'+StlTag+ ' || '+StlTag;
+                }
+                if(!override) {
+                    output.push(replMutation + StlTag);
+                    if(replMutation) {
+                        console.warn('!!! Attention. Replaced element/tag (if will be passed through props) will not be styled ');
+                        console.warn('cause replace happen at render cycle through props, but style generation at js initilization step !!!');
+                    }
+                    this.styleBlocks[node.styleId].tag = tagOrCmp;
+                } else {
+                    if(preservedCmpProp) {
+                        output.push(overridenTagOrCmp);
+                        this.styleBlocks[node.styleId].tag = tagOrCmp;
+                        tagOrCmp = StlTag;
+                    } else {
+                        output.push(StlTag);
+                        this.styleBlocks[node.styleId].tag = overridenTagOrCmp;
+                    }
+                }
+                
+            }
+            output.push(',')
+            const propsOut = ['{'];
+            if(isStyled) propsOut.push("...p,");
+            const staticProps = stringifyProps(attrs,propsOut);
+            const exprProps = stringifyExprProps(attrWithExpr,propsOut,opts);
+            propsOut.pop();
+            const propsStr = propsOut.length > 1 ? propsOut.join('')+'}' : (isStyled ? '{...p}' : 'null');
+            if(loopOutput || (override && override.args[1])) {
+                output.push('Object.assign(');
+                if(loopOutput) output.push('{key},');
+                if(override && override.args[1]) output.push(override.args[1]+',');
+                if(preservedCmpProp) output.push( '{'+preservedCmpProp+': '+tagOrCmp+',...p},')
+                output.push(`${propsStr})`);
+            } else {
+                output.push(propsStr);
+            }
+            const rProps = {...attrs,key};
+
+            const chlds = this.createChilds(nodes,_props,key,opts,output,true);
+            output.push(')');
+            if(hocProp) output.push('),p,null)');
+            if(wrapSelf) output.push(')');
+            if(hocFn) {
+                const fn = hocFn.args[1];
+                output.push(`),p,null)`);
+            }
+            output.push(',');
+            node.output = output.join('');
+
+            return !chlds || chlds.constructor!=Array ? 
+                React.createElement(tag,rProps,chlds) :
+                React.createElement.apply(React,[tag,rProps,...chlds]);
+        } else if(tag=="js_ReactInclude") {
+            try {
+                const Cmp = attrs.val;
+                if(attrs.src && attrs.src == "fromProps")
+                    output.push(`p['${Cmp}'] ? p['${Cmp}'](p) : null `);
+                else 
+                    output.push(RCR+`${Cmp}, p, null) `);
+
+            } catch(e) {
+                console.error(e);
+                output.push('null /* error include */')
+            }
+            output.push(',');
+        } else if(type=='LOGIC') {
+            if(output.noOutput) {
+                if(logic=="FOR" && node.exprRes && _props[node.exprRes] ) { // realtime
+
+                    return _props[node.exprRes].map( (obj,idx) => {
+                        const key = key_var?obj[key_var]:idx,
+                            rProps = {
+                                ..._props,
+                                [value_var]:obj
+                            };
+                        return this.createChilds(nodes,rProps,key,opts,output);
+                    })
+                }
+                if(logic=="IF" || (logic=="ELSEIF" && !parent.skip)) { // realtime
+                    delete parent.skip;
+                    if(node.exprRes) {
+                        parent.skip = true;
+                        return this.createChilds(nodes,_props,key,opts,[]);
+                    }
+                }
+                if(logic == "ELSE") { // realtime
+                    if(!parent.skip) {
+                        const res = this.createChilds(nodes,_props,key,opts,[]);
+                        return res;
+                    }
+                    else delete parent.skip;
+                }        
+            }
+
+            if(logic == "BLOCK" && !skipSub) { // generation + realtime
+                const blockOutput = [];
+                if(nodes.length>1) blockOutput.push('R.c(R.F,null,');
+                const res = inh && inh.child && inh.child[node.block] ? this.createChilds(inh.child[node.block].nodes,_props,key,opts,blockOutput) 
+                    : this.createChilds(nodes,_props,key,opts,blockOutput);
+                    if(nodes.length==0) blockOutput.push('null');
+                    if(nodes.length>1) blockOutput.push(')');
+                output.push('rdrBlockOrSelf(p, blocks["'+node.block+'"], () => ('+blockOutput.join('')+'), ovrrdn)');
+                output.push(',');
+
+                return res;
+            }
+        } else if(type=='EXPR') {
+            if(node.exprGen=='p.parent()') {
+                let chBlock = node.parent;
+                for ( ; chBlock.logic!='BLOCK' && chBlock.parent ; chBlock = chBlock.parent ) {
+                }
+                if(chBlock.logic=='BLOCK' ) {
+                    output.push('parentCmp()')
+                }
+
+            } else {
+                output.push( node.exprGen);
+            }
+            output.push(',')
+            if(output.noOutput) return node.exprRes;
+        }
+        if(!output.noOutput && type=='LOGIC' && (logic=="IF" || logic=="ELSEIF" || logic == "ELSE") ) { // generation
+            if(logic == "IF" ) {
+                if(parent.ifElseStrBuild) {
+                    closeIfElse(output,parent);
+                    }
+                parent.ifElseStrBuild = ['[{elem: p=> '];
+            }
+            if( logic=="ELSEIF") {
+                parent.ifElseStrBuild.push(',{elem: p=> ');
+            }
+            if( logic=="IF" || logic=="ELSEIF") {
+                if(nodes.length>1) parent.ifElseStrBuild.push('R.c(R.F,null,');
+                this.createChilds(nodes,_props,key,opts,parent.ifElseStrBuild);
+                if(nodes.length>1) parent.ifElseStrBuild.push(')');
+                parent.ifElseStrBuild.push(`,cond:p => ${node.exprGen}}`)
+            }
+            if(logic == "ELSE") {
+
+                if(parent.ifElseStrBuild) {
+                    parent.ifElseStrBuild.push(',{elem: p=> ');
+                    if(nodes.length>1) parent.ifElseStrBuild.push('R.c(R.F,null,');
+                    this.createChilds(nodes,_props,key,opts,parent.ifElseStrBuild);
+                    if(nodes.length>1) parent.ifElseStrBuild.push(')');
+                    parent.ifElseStrBuild.push(',cond: p => true}')
+                    closeIfElse(output,parent,false,true);
+                    //output.push(',');
+                }
+                // output.push('[]')
+            }
+        }
+        if(!output.noOutput && logic=="INCLUDE") { // generation
+            const tplAlias = node.inclAlias;
+            output.push('R.c('+tplAlias+',');
+            if(node.withContext) {
+                output.push('Object.assign(');
+                output.push(node.withContext);
+                output.push(',p)');
+            } else {
+                output.push('p');
+            }
+            output.push(')');
+            output.push(',');
+            
+        }
+        if(!output.noOutput && logic=="FOR") { // generation
+            const {key_var,value_var} = forLoopCfg, iterable = node.exprGen;
+            output.push(`!!${iterable} && ${iterable}`)
+
+            if(node.conditional)
+                output.push( `.filter( ${value_var} => ${ node.conditional.gen } )`)
+            output.push(`.map( (${value_var},idx) => {`);
+            if(key_var) output.push(` const key = ${value_var}.${key_var} || idx;`);
+            else output.push(` const key = idx;`);
+            output.push('const res = ');
+            if(nodes.length>1) output.push('R.c(R.F,{key},');
+            this.createChilds(nodes,_props,key,opts,output,false,true);
+            if(nodes.length>1) output.push(')');
+            output.push('; return res;})');
+            output.push(',');                   
+            
+        }
+
+        return null;
+    }
+    Twig.Template.prototype.genBlocksMap = function(blocks,opt) {
+        let res = ['{'];
+        Object.keys(blocks).forEach( bn => {
+            res.push('"')
+            res.push(bn)
+            res.push('":')
+            res.push('(p,__arg_place__) => ')
+            if(blocks[bn].nodes.length>0) {
+                if(blocks[bn].nodes.length>1) res.push('R.c(R.F,null,');
+                res.push('' + this.nodesToSting(blocks[bn].nodes,blocks[bn],Object.assign({skipSub:true},opt)));
+                if(blocks[bn].nodes.length>1) res.push(')');
+            } else 
+                res.push('null');
+            res.push(',')
+        })
+        res.pop();
+        res.push('}');
+        return res.join('');
+    }
+    Twig.Template.prototype.nodesToSting = function(nodes,tree,opt) {
+        const output = [];
+
+        const strGenCmp = nodes.length > 1 ?
+             // `React.createElement('heading',null${this.createChilds(nodes)}` :
+             () => { output.push('R.c(R.F,null,'); this.createChilds(nodes,{},null,opt,output); output.push(')') } :
+             () => { 
+                this.nodeToEl(nodes[0],{},null,opt,output);
+                if(!tree.ifElseStrBuild) output.pop()
+                else {
+                    this.afterNode(output,nodes[0]);
+                }
+            }
+        strGenCmp({}); // to fill output = []
+        return output.join('');
+    }
+    Twig.Template.prototype.nodesToComponent = function(tree,opt,isExtend) {
+        const {nodes} = tree;
+        if(!nodes||!nodes.length) return _props => null
+        const noOutput = [];
+        noOutput.noOutput = true;
+        const ReactCmp = nodes.length > 1 ?
+             // `React.createElement('heading',null${this.createChilds(nodes)}` :
+             _props => opt.React.createElement(opt.React.Fragment,null,this.createChilds(nodes,_props,null,opt,noOutput)) :
+             _props => this.nodeToEl(nodes[0],_props,null,opt,noOutput);
+
+        const cmpString = /* isExtend ? '' : */ this.nodesToSting(nodes,tree,opt)
+        const blocksStr = this.blocks && Object.keys(this.blocks).length ? this.genBlocksMap(this.blocks,opt) : null;
+
+        return {ReactCmp,cmpString,blocksStr}
+    }
+
+    Twig.Template.prototype.getReactComp = function (contextAndOpt, params, allow_async) {
+        contextAndOpt._$local_scope = contextAndOpt._$local_scope = [];
+        const {tree } = this.render(contextAndOpt, params, allow_async);
+        const res = this.nodesToComponent(tree, Object.assign({},params,contextAndOpt),this.isExtend);
+        res.tree = tree;
+        return res;
     };
 
     Twig.Template.prototype.importFile = function(file) {
