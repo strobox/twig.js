@@ -94,19 +94,15 @@ module.exports = function (Twig) {
             },
             parse: function (token, context, chain) {
                 var that = this;
-                return Twig.expression.parse.call(this, token.stack, context)
-                .then(function(o) {
-                    chain = true;
-                    context.nodeInContext.exprGen = o.gen;
-                    context.nodeInContext.exprRes = o.val;
-                    return Twig.parse.call(that, token.output, context);
-                })
-                .then(function(output) {
-                    return {
-                        chain: chain,
-                        output: output
-                    };
-                });
+                const o = Twig.expression.parse.call(this, token.stack, context)
+                chain = true;
+                context.nodeInContext.exprGen = o.gen;
+                context.nodeInContext.exprRes = o.val;
+                const output = Twig.parse.call(that, token.output, context);
+                return {
+                    chain: chain,
+                    output: output
+                };
             }
         },
         {
@@ -137,18 +133,14 @@ module.exports = function (Twig) {
             parse: function (token, context, chain) {
                 var that = this;
 
-                return Twig.expression.parse.call(this, token.stack, context)
-                .then(function(result) {
-                        context.nodeInContext.exprGen = o.gen;
-                        context.nodeInContext.exprRes = o.val;
-                        return Twig.parse.call(that, token.output, context);
-                })
-                .then(function(output) {
-                    return {
-                        chain: true,
-                        output: output
-                    }
-                });
+                const result = Twig.expression.parse.call(this, token.stack, context);
+                context.nodeInContext.exprGen = o.gen;
+                context.nodeInContext.exprRes = o.val;
+                const output = Twig.parse.call(that, token.output, context);
+                return {
+                    chain: true,
+                    output: output
+                }
             }
         },
         {
@@ -166,14 +158,12 @@ module.exports = function (Twig) {
             open: false,
             parse: function (token, context, chain) {
 
-                var promise = Twig.parse.call(this, token.output, context);
+                const output = Twig.parse.call(this, token.output, context);
 
-                return promise.then(function(output) {
-                    return {
-                        chain: true,
-                        output: output
-                    };
-                });
+                return {
+                    chain: true,
+                    output: output
+                };
             }
         },
         {
@@ -256,21 +246,19 @@ module.exports = function (Twig) {
                 }
                 if(token.conditional)
                     context.nodeInContext.conditional = Twig.expression.parse.call(that, token.conditional, context);
-                return Twig.expression.parse.call(this, token.expression, context)
-                .then(function(o) {
-                    context.nodeInContext.exprGen = o.gen;
-                    context.nodeInContext.exprRes = o.val;
-                    return token.output ? Twig.parse.call(that, token.output, context)
-                        .then(function(o) {
-                            output.push(o);
-                            //index += 1;
-                        }).then( function() {
-                            return {
-                                chain: false,
-                                output: output
-                            }
-                        }) : Promise.resolve({output:''});
-                })
+                const o = Twig.expression.parse.call(this, token.expression, context);
+                context.nodeInContext.exprGen = o.gen;
+                context.nodeInContext.exprRes = o.val;
+                if(token.output) {
+                  const o = Twig.parse.call(that, token.output, context)
+                  output.push(o);
+                  return {
+                      chain: false,
+                      output: output
+                  }
+                } else {
+                  return {output: ''};
+                }
 
             }
         },
@@ -313,23 +301,21 @@ module.exports = function (Twig) {
             parse: function (token, context, continue_chain) {
                 var key = token.key;
 
-                return Twig.expression.parse.call(this, token.expression, context)
-                .then(function(value) {
-                    if (value === context) {
-                        /*  If storing the context in a variable, it needs to be a clone of the current state of context.
-                            Otherwise we have a context with infinite recursion.
-                            Fixes #341
-                        */
-                        value = Twig.lib.copy(value);
-                    }
+                const value = Twig.expression.parse.call(this, token.expression, context);
+                if (value === context) {
+                    /*  If storing the context in a variable, it needs to be a clone of the current state of context.
+                        Otherwise we have a context with infinite recursion.
+                        Fixes #341
+                    */
+                    value = Twig.lib.copy(value);
+                }
 
-                    context[key] = value;
+                context[key] = value;
 
-                    return {
-                        chain: continue_chain,
-                        context: context
-                    };
-                });
+                return {
+                    chain: continue_chain,
+                    context: context
+                };
             }
         },
         {
@@ -356,17 +342,15 @@ module.exports = function (Twig) {
                 var that = this,
                     key = token.key;
 
-                return Twig.parse.call(this, token.output, context)
-                .then(function(value) {
-                    // set on both the global and local context
-                    that.context[key] = value;
-                    context[key] = value;
+                const value=  Twig.parse.call(this, token.output, context)
+                // set on both the global and local context
+                that.context[key] = value;
+                context[key] = value;
 
-                    return {
-                        chain: continue_chain,
-                        context: context
-                    };
-                });
+                return {
+                    chain: continue_chain,
+                    context: context
+                };
             }
         },
         {
@@ -405,21 +389,17 @@ module.exports = function (Twig) {
             parse: function (token, context, chain) {
                 var that = this;
 
-                return Twig.parse.call(this, token.output, context)
-                .then(function(unfiltered) {
-                    var stack = [{
-                        type: Twig.expression.type.string,
-                        value: unfiltered
-                    }].concat(token.stack);
+                const unfiltered = Twig.parse.call(this, token.output, context)
+                var stack = [{
+                    type: Twig.expression.type.string,
+                    value: unfiltered
+                }].concat(token.stack);
 
-                    return Twig.expression.parse.call(that, stack, context);
-                })
-                .then(function(output) {
-                    return {
-                        chain: chain,
-                        output: output
-                    }
-                });
+                const output = Twig.expression.parse.call(that, stack, context);;
+                return {
+                    chain: chain,
+                    output: output
+                }
             }
         },
         {
@@ -458,16 +438,13 @@ module.exports = function (Twig) {
                 //const blockPath = path.match(/\(.+?\)/g).map( n => n.slice(1,-1)).join('.');
                 context.nodeInContext.block = token.block;
                 this.blocks[token.block] = context.nodeInContext;
-                return Twig.parse.call(this, token.output, context)
-                            .then(function(o) {
-                                output.push(o);
-                                //index += 1;
-                            }).then( function() {
-                                return {
-                                    chain: false,
-                                    output: output
-                                }
-                            });
+                const o = Twig.parse.call(this, token.output, context)
+                output.push(o);
+                //index += 1;
+                return {
+                    chain: false,
+                    output: output
+                }
 
             }
         },
@@ -563,16 +540,14 @@ module.exports = function (Twig) {
                 var that = this;
 
                 // Resolve filename
-                return Twig.expression.parse.call(this, token.stack, context)
-                .then(function(file) {
+                const file = Twig.expression.parse.call(this, token.stack, context);
                     // Import blocks
-                    that.importBlocks(file);
+                that.importBlocks(file);
 
-                    return {
-                        chain: chain,
-                        output: ''
-                    };
-                });
+                return {
+                    chain: chain,
+                    output: ''
+                };
             }
         },
         {
@@ -622,14 +597,12 @@ module.exports = function (Twig) {
                 //  t = "'menu': menu.get_items, rest:{start:3,end:2},other:'logo', obj:{intro:{passed:'bom'}}"
                 //  be = /["']{0,1}\S+["']{0,1}\s*:\s*(\{[^{]*\})/g, t.replace(be,'')
                 this.includes[inclAlias] = filePath;
-                if(token.withStack)
-                    promise = Twig.expression.parse.call(this, token.withStack, context).then(function(withContext) {
-                        context.nodeInContext.withContext = withContext.gen;
-                        return result;
-                    });
-                else 
-                    promise = Twig.Promise.resolve(result);
-                return promise;
+                if(token.withStack) {
+                    const withContext = Twig.expression.parse.call(this, token.withStack, context);
+                    context.nodeInContext.withContext = withContext.gen;
+                    return withContext;
+                } else 
+                  return result;
                 
             }
         },
@@ -644,19 +617,17 @@ module.exports = function (Twig) {
             // Parse the html and return it without any spaces between tags
             parse: function (token, context, chain) {
                 // Parse the output without any filter
-                return Twig.parse.call(this, token.output, context)
-                .then(function(unfiltered) {
-                    var // A regular expression to find closing and opening tags with spaces between them
-                        rBetweenTagSpaces = />\s+</g,
-                        // Replace all space between closing and opening html tags
-                        output = unfiltered.replace(rBetweenTagSpaces,'><').trim();
-                        // Rewrap output as a Twig.Markup
-                        output = Twig.Markup(output);
-                    return {
-                        chain: chain,
-                        output: output
-                    };
-                });
+                const unfiltered = Twig.parse.call(this, token.output, context)
+                var // A regular expression to find closing and opening tags with spaces between them
+                    rBetweenTagSpaces = />\s+</g,
+                    // Replace all space between closing and opening html tags
+                    output = unfiltered.replace(rBetweenTagSpaces,'><').trim();
+                    // Rewrap output as a Twig.Markup
+                    output = Twig.Markup(output);
+                return {
+                    chain: chain,
+                    output: output
+                };
             }
         },
 
@@ -733,25 +704,22 @@ module.exports = function (Twig) {
                     // Save arguments
                     var args = Array.prototype.slice.call(arguments);
 
-                    return Twig.async.forEach(token.parameters, function (prop, i) {
+                    token.parameters.forEach( function (prop, i) {
                         // Add parameters from context to macroContext
                         if (typeof args[i] !== 'undefined') {
                             macroContext[prop] = args[i];
                             return true;
                         } else if (typeof token.defaults[prop] !== 'undefined') {
-                            return Twig.expression.parse.call(this, token.defaults[prop], context)
-                                .then(function(value) {
-                                    macroContext[prop] = value;
-                                    return Twig.Promise.resolve();
-                                });
+                            const value = Twig.expression.parse.call(this, token.defaults[prop], context);
+                            macroContext[prop] = value;
+                            return Twig.Promise.resolve();
                         } else {
                             macroContext[prop] = undefined;
                             return true;
                         }
-                    }).then(function () {
-                        // Render
-                        return Twig.parse.call(template, token.output, macroContext);
-                    });
+                    })
+
+                    return Twig.parse.call(template, token.output, macroContext);
                 };
 
                 return {
@@ -806,15 +774,9 @@ module.exports = function (Twig) {
                     return Twig.Promise.resolve(output);
                 }
 
-                return Twig.expression.parse.call(this, token.stack, context)
-                .then(function(file) {
-                    return that.importFile(file || token.expression);
-                })
-                .then(function(template) {
-                    context[token.contextName] = template.renderAsync({}, {output: 'macros'});
-
-                    return output;
-                });
+                const file = Twig.expression.parse.call(this, token.stack, context);
+                template = that.importFile(file || token.expression);
+                
             }
         },
         {
@@ -862,32 +824,23 @@ module.exports = function (Twig) {
                 return token;
             },
             parse: function (token, context, chain) {
-                var that = this,
-                    promise = Twig.Promise.resolve(this.macros);
+                var that = this;
 
                 if (token.expression !== "_self") {
-                    promise = Twig.expression.parse.call(this, token.stack, context)
-                    .then(function(file) {
-                        return that.importFile(file || token.expression);
-                    })
-                    .then(function(template) {
-                        return template.renderAsync({}, {output: 'macros'});
-                    });
+                    const file = Twig.expression.parse.call(this, token.stack, context)
+                    const template = that.importFile(file || token.expression);
+                }
+                const macros = this.macros;
+                for (var macroName in token.macroNames) {
+                    if (macros.hasOwnProperty(macroName)) {
+                        context[token.macroNames[macroName]] = macros[macroName];
+                    }
                 }
 
-                return promise
-                .then(function(macros) {
-                    for (var macroName in token.macroNames) {
-                        if (macros.hasOwnProperty(macroName)) {
-                            context[token.macroNames[macroName]] = macros[macroName];
-                        }
-                    }
-
-                    return {
-                        chain: chain,
-                        output: ''
-                    }
-                });
+                return {
+                    chain: chain,
+                    output: ''
+                }
             }
         },
         {
@@ -945,21 +898,14 @@ module.exports = function (Twig) {
                 }
 
                 if (token.withStack !== undefined) {
-                    promise = Twig.expression.parse.call(this, token.withStack, context)
-                    .then(function(withContext) {
-                        for (i in withContext) {
-                            if (withContext.hasOwnProperty(i))
-                                innerContext[i] = withContext[i];
-                        }
-                    });
+                    const withContext = Twig.expression.parse.call(this, token.withStack, context)
+                      for (i in withContext) {
+                          if (withContext.hasOwnProperty(i))
+                              innerContext[i] = withContext[i];
+                      }
                 }
 
-                return promise.then(function() {
-                    // Allow this function to be cleaned up early
-                    promise = null;
-                    return Twig.expression.parse.call(that, token.stack, innerContext);
-                })
-                .then(function(file) {
+                const file = Twig.expression.parse.call(that, token.stack, innerContext);;
                     if (file instanceof Twig.Template) {
                         template = file;
                     } else {
@@ -985,20 +931,15 @@ module.exports = function (Twig) {
                     that.blocks = {};
 
                     // parse tokens. output will be not used
-                    return Twig.parse.call(that, token.output, innerContext)
-                    .then(function() {
+                    Twig.parse.call(that, token.output, innerContext)
                         // render tempalte with blocks defined in embed block
-                        return template.renderAsync(innerContext, {'blocks': that.blocks});
-                    });
-                })
-                .then(function(output) {
+                    const output = template.renderAsync(innerContext, {'blocks': that.blocks});
                     // restore previous blocks
                     that.blocks = Twig.lib.copy(that._blocks);
                     return {
                         chain: chain,
                         output: output
                     };
-                });
             }
         },
         /* Add the {% endembed %} token
@@ -1052,25 +993,17 @@ module.exports = function (Twig) {
                 }
 
                 if (token.withStack !== undefined) {
-                    promise = Twig.expression.parse.call(this, token.withStack, context)
-                    .then(function(withContext) {
-                        for (i in withContext) {
-                            if (withContext.hasOwnProperty(i))
-                                innerContext[i] = withContext[i];
-                        }
-                    });
+                    const withContext = Twig.expression.parse.call(this, token.withStack, context)
+                      for (i in withContext) {
+                          if (withContext.hasOwnProperty(i))
+                              innerContext[i] = withContext[i];
+                      }
                 }
-
-                return promise
-                .then(function() {
-                    return Twig.parse.call(that, token.output, innerContext);
-                })
-                .then(function(output) {
-                    return {
-                        chain: chain,
-                        output: output
-                    };
-                });
+                const output = Twig.parse.call(that, token.output, innerContext);
+                  return {
+                      chain: chain,
+                      output: output
+                  };
             }
         },
         {

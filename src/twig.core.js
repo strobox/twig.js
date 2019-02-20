@@ -547,6 +547,7 @@ module.exports = function (Twig) {
                 next = null;
 
             var compile_output = function(token) {
+                debugger;
                 Twig.expression.compile.call(that, token);
                 if (stack.length > 0) {
                     intermediate_output.push(token);
@@ -822,19 +823,23 @@ module.exports = function (Twig) {
         obj.attrWithExpr[obj.lastCplxAtrr.tag] = obj.lastCplxAtrr;
     }
 
-    function tryParseExpressions(str) {
+    function tryParseExpressions(str,context) {
+      if(!str) return str;
       return str.replace(/\{\{(.*?)\}\}/g,(all,g1,pos,input) => {
-        return '${'+0+'}';
+        let expr = Twig.expression.compile.call(this, {type:'output',value:g1});
+        let exprStr = `err_expr(${g1})`
+        exprStr = Twig.expression.parse.call(this,expr.stack,context);
+        return '${'+exprStr+'}';
       });
     }
-    function parseAttrs(attribs) {
+    function parseAttrs(attribs,context) {
       const attrs = {...attribs};
       for(let attrName in attrs) {
         if(attrs.hasOwnProperty(attrName)) {
           if(!attrs[attrName] || !attrs[attrName].trim()) {
             delete attrs[attrName];
           } else {
-            attrs[attrName] = tryParseExpressions.call(this,attrs[attrName]);
+            attrs[attrName] = tryParseExpressions.call(this,attrs[attrName],context);
           }
         }
       }
@@ -850,7 +855,7 @@ module.exports = function (Twig) {
       let isLogic = false;
       if(type=="text") {
         nn.type = "text_node";
-        nn.value = tryParseExpressions(clearTextEndings(rval.data));
+        nn.value = tryParseExpressions(clearTextEndings(rval.data),context);
       } else if(type=="tag") {
         if(name=="gwip_wrap" || name=="gwip_inline") {
           isLogic = true;
@@ -862,57 +867,60 @@ module.exports = function (Twig) {
             console.log(v);
           }).catch( e => console.error(e)) */
           nn.logic = type;
-        } else if(name=="gwipdir") {
-          const nextDir = node.children[0].data.match(dirRe);
-          let dName;
-          if(nextDir && (dName = nextDir[1])) {
-              let opts, argsStr = nextDir[2];
-              try {
-                  argsStr = argsStr.replace( /(["'])(?:(?=(\\?))\2[\s\S])*?\1/g, m => m.replace(/(^'|'$)/g,'"') )
-                  opts = JSON.parse('{"args":['+argsStr+']}');
-              } catch(e) {
-                  console.error('Bad directive: ',e);
-                  return {skip: true}
-              }
-              if(dName=='include') {
-                  nn.tag = 'js_ReactInclude'; /* TODO Remain one approach */
-                  nn.attrs = {
-                    val: tryParseExpressions(opts.args[0]),
-                    src: tryParseExpressions(opts.args[1])
-                  }
-              } else if(dName=='require') {
-                  const reqStr = opts.args[0];
-                  this.requires.push(reqStr);
-                  return {skip: true}
-                  try {
-                      const imports = reqStr.match(/import(.*)from\s+['"]/)[1].replace(/[,\{\}]/g,' ').replace(/\s+/g,' ').trim().split(' ');
-                      context._$local_scope = context._$local_scope.concat(imports);
-                  } catch(e) {
-                      console.error(e);
-                  }
-              } else {
-                  const directives = nn.directives || (nn.directives = {});
-                  if(!directives[dName]) directives[dName] = [];
-                  directives[dName].push(opts);
-
-              }
-
-          } else {
-            console.warn('Unknown',node.data);
-          }
+        } else if(name=="js_script") {
+          this.rawScripts.push(node.children[0].data);
         } else {
           nn.type = "react";
           nn.tag = name;
         }
+      } else if(type=="comment"){
+        const nextDir = node.data.match(dirRe);
+        let dName;
+        if(nextDir && (dName = nextDir[1])) {
+            let opts, argsStr = nextDir[2];
+            try {
+                argsStr = argsStr.replace( /(["'])(?:(?=(\\?))\2[\s\S])*?\1/g, m => m.replace(/(^'|'$)/g,'"') )
+                opts = JSON.parse('{"args":['+argsStr+']}');
+            } catch(e) {
+                console.error('Bad directive: ',e);
+                return {skip: true}
+            }
+            if(dName=='include') {
+                nn.tag = 'js_ReactInclude'; /* TODO Remain one approach */
+                nn.attrs = {
+                  val: tryParseExpressions(opts.args[0],context),
+                  src: tryParseExpressions(opts.args[1],context)
+                }
+            } else if(dName=='require') {
+                const reqStr = opts.args[0];
+                this.requires.push(reqStr);
+                return {skip: true}
+                try {
+                    const imports = reqStr.match(/import(.*)from\s+['"]/)[1].replace(/[,\{\}]/g,' ').replace(/\s+/g,' ').trim().split(' ');
+                    context._$local_scope = context._$local_scope.concat(imports);
+                } catch(e) {
+                    console.error(e);
+                }
+            } else {
+                const directives = nn.directives || (nn.directives = {});
+                if(!directives[dName]) directives[dName] = [];
+                directives[dName].push(opts);
+
+            }
+
+        } else {
+          console.warn('Unknown',node.data);
+        }
+        
       } else {
-        debugger;
+        console.warn('Not handled '+name);
       }
 
       if(name!="gwipdir" && type=="tag") {
         const children = rval.children.filter( dn => dn.name!='gwip_wrap_logic_val');
         const nodes = traverseChilds.call(this,context,nn,children,depth+(isLogic?2:1))
         nn.nodes = nodes;
-        nn.attrs = parseAttrs(node.attribs);
+        nn.attrs = parseAttrs(node.attribs,context);
       }
 
       return nn;
@@ -934,7 +942,7 @@ module.exports = function (Twig) {
       return root;
     }
     Twig.parse = function (tokens, context) {
-        if(!tokens) return Promise.resolve('');
+        if(!tokens) return '';
         var that = this,
             output = [],
             tree = context.nodeInContext || {path:'ROOT',nodes:[],depth:0},
@@ -1223,22 +1231,22 @@ module.exports = function (Twig) {
                     Twig.log.debug("Twig.parse: ", "Output token: ", token.stack);
                     // Parse the given expression in the given context
 
-                    return Twig.expression.parse.call(that, token.stack, context)
-                        .then( o => {
-                            if(tree._focusedNode.lastCplxAtrr) {
-                                tree._focusedNode.lastCplxAtrr.items.push(
-                                    {type:'expr',value:o.gen,exprRes:o.val});
-                            } else {
-                                tree._focusedNode.nodes.push({
-                                    type:"EXPR",
-                                    depth: tree._focusedNode.depth + 1,
-                                    parent:tree._focusedNode,
-                                    path:tree._focusedNode.path+'[EXPR]',
-                                    exprGen: o.gen,
-                                    exprRes:o.val
-                                })
-                            }
-                        });
+                    const o = Twig.expression.parse.call(that, token.stack, context)
+                        
+                    if(tree._focusedNode.lastCplxAtrr) {
+                        tree._focusedNode.lastCplxAtrr.items.push(
+                            {type:'expr',value:o.gen,exprRes:o.val});
+                    } else {
+                        tree._focusedNode.nodes.push({
+                            type:"EXPR",
+                            depth: tree._focusedNode.depth + 1,
+                            parent:tree._focusedNode,
+                            path:tree._focusedNode.path+'[EXPR]',
+                            exprGen: o.gen,
+                            exprRes:o.val
+                        })
+                    }
+                        
             }
         })
             //output = Twig.output.call(that, output);
@@ -1248,7 +1256,6 @@ module.exports = function (Twig) {
             err = e;
         }); */
 
-        return Promise.resolve(output);
     };
 
     /**

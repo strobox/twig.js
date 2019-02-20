@@ -156,17 +156,15 @@ module.exports = function (Twig) {
             parse: function(token, stack, context) {
                 var value = stack.pop().val;
 
-                return parseParams(this, token.params, context)
-                .then(function(params) {
-                    var result = Twig.test(token.filter, value, params);
+                const params = parseParams(this, token.params, context);
+                  var result = Twig.test(token.filter, value, params);
 
-                    if (token.modifier == 'not') {
-                        stack.push({val:!result});
-                    } else {
-                        stack.push({val:result});
-                    }
-                });
-            debugger;}
+                  if (token.modifier == 'not') {
+                      stack.push({val:!result});
+                  } else {
+                      stack.push({val:result});
+                  }
+            }
         },
         {
             type: Twig.expression.type.comma,
@@ -287,16 +285,14 @@ module.exports = function (Twig) {
                     stack.push({val:token});
                 } else if (token.params) {
                     // handle "{(expression):value}"
-                    return Twig.expression.parse.call(this, token.params, context)
-                    .then(function(key) {
-                        token.key = key;
-                        stack.push({val:token});
+                  const key = Twig.expression.parse.call(this, token.params, context);
+                      token.key = key;
+                      stack.push({val:token});
 
-                        //If we're in a loop, we might need token.params later, especially in this form of "(expression):value"
-                        if (!context.loop) {
-                            delete(token.params);
-                        }
-                    });
+                      //If we're in a loop, we might need token.params later, especially in this form of "(expression):value"
+                      if (!context.loop) {
+                          delete(token.params);
+                      }
                 } else {
                     Twig.expression.operator.parse(token.value, stack);
                 }
@@ -472,10 +468,8 @@ module.exports = function (Twig) {
                     value = null;
 
                 if (token.expression) {
-                    return Twig.expression.parse.call(this, token.params, context)
-                    .then(function(res) {
-                        stack.push(res);
-                    });
+                    const res = Twig.expression.parse.call(this, token.params, context)
+                    stack.push(res);
                 } else {
                     throw new Twig.Error("Unexpected subexpression end when token is not marked as an expression");
                 }
@@ -560,10 +554,8 @@ module.exports = function (Twig) {
                     if(stack.length) {
                         prevGen = stack.pop().gen;
                     }
-                    return Twig.expression.parse.call(this, token.params, context)
-                    .then(function(value) {
-                        stack.push({val:value,gen:prevGen + (value ? value.gen : '') +')'});
-                    });
+                    value = Twig.expression.parse.call(this, token.params, context)
+                    stack.push({val:value,gen:prevGen + (value ? value.gen : '') +')'});
                 } else {
 
                     while (stack.length > 0) {
@@ -774,13 +766,8 @@ module.exports = function (Twig) {
                 var that = this,
                     input = stack.pop().val;
 
-                return parseParams(this, token.params, context)
-                .then(function(params) {
-                    return Twig.filter.call(that, token.value, input, params);
-                })
-                .then(function(value) {
-                    stack.push({val:value});
-                });
+                const params = parseParams(this, token.params, context);
+                return Twig.filter.call(that, token.value, input, params);
             }
         },
         {
@@ -810,33 +797,29 @@ module.exports = function (Twig) {
                     fn = token.fn,
                     value;
 
-                return parseParams(this, token.params, context)
-                .then(function(params) {
-                    if(!Twig.doeval)
-                        return {val:'',gen:params.map( p => p.gen).join(',')};
+                const params = parseParams(this, token.params, context);
+                if(!Twig.doeval)
+                    return {val:'',gen:params.map( p => p.gen).join(',')};
 
-                    if (Twig.functions[fn]) {
-                        // Get the function from the built-in functions
-                        value = Twig.functions[fn].apply(that, params);
+                if (Twig.functions[fn]) {
+                    // Get the function from the built-in functions
+                    value = Twig.functions[fn].apply(that, params);
 
-                    } else if (typeof context[fn] == 'function') {
-                        // Get the function from the user/context defined functions
-                        value = context[fn].apply(context, params);
+                } else if (typeof context[fn] == 'function') {
+                    // Get the function from the user/context defined functions
+                    value = context[fn].apply(context, params);
 
-                    } else {
-                        throw new Twig.Error(fn + ' function does not exist and is not defined in the context');
-                    }
+                } else {
+                    throw new Twig.Error(fn + ' function does not exist and is not defined in the context');
+                }
 
-                    return {val:value,gen:params.map( p => p.gen).join(',')};
-                })
-                .then(function(result) {
-                    const isNotProp = context._$not_props && context._$not_props.indexOf(token.value)>=0;
-                    let propOrNo = isNotProp ?
-                        '' : 'p.';
-                    if(context._$local_scope.indexOf(fn)>=0 && !isNotProp )
-                        propOrNo = fn + '||'+propOrNo;
-                    stack.push({val:result,gen:propOrNo+fn+'('+result.gen+')'});
-                });
+                const result = {val:value,gen:params.map( p => p.gen).join(',')};
+                const isNotProp = context._$not_props && context._$not_props.indexOf(token.value)>=0;
+                let propOrNo = isNotProp ?
+                    '' : 'p.';
+                if(context._$local_scope.indexOf(fn)>=0 && !isNotProp )
+                    propOrNo = fn + '||'+propOrNo;
+                stack.push({val:result,gen:propOrNo+fn+'('+result.gen+')'});
             }
         },
 
@@ -860,15 +843,13 @@ module.exports = function (Twig) {
             },
             parse: function(token, stack, context) {
                 // Get the variable from the context
-                return Twig.expression.resolve.call(this, context[token.value], context)
-                .then(function(value) {
-                    const isNotProp = context._$not_props && context._$not_props.indexOf(token.value)>=0;
-                    let propOrNo = isNotProp ?
-                        '' : 'p.';
-                    if(context._$local_scope.indexOf(token.value)>=0 && !isNotProp )
-                        propOrNo = token.value + '||'+propOrNo;
-                    stack.push({val:value,gen:propOrNo+token.value});
-                });
+                const valu = Twig.expression.resolve.call(this, context[token.value], context)
+                const isNotProp = context._$not_props && context._$not_props.indexOf(token.value)>=0;
+                let propOrNo = isNotProp ?
+                    '' : 'p.';
+                if(context._$local_scope.indexOf(token.value)>=0 && !isNotProp )
+                    propOrNo = token.value + '||'+propOrNo;
+                stack.push({val:value,gen:propOrNo+token.value});
             }
         },
         {
@@ -890,42 +871,38 @@ module.exports = function (Twig) {
                     object = poped.val,
                     value;
 
-                return parseParams(this, token.params, context)
-                .then(function(params) {
-                    if(Twig.doeval) {
-                        if (object === null || object === undefined) {
-                            if (that.options.strict_variables) {
-                                throw new Twig.Error("Can't access a key " + key + " on an null or undefined object.");
-                            } else {
-                                value = undefined;
-                            }
+                const params = parseParams(this, token.params, context);
+                if(Twig.doeval) {
+                    if (object === null || object === undefined) {
+                        if (that.options.strict_variables) {
+                            throw new Twig.Error("Can't access a key " + key + " on an null or undefined object.");
                         } else {
-                            var capitalize = function (value) {
-                                return value.substr(0, 1).toUpperCase() + value.substr(1);
-                            };
-
-                            // Get the variable from the context
-                            if (typeof object === 'object' && key in object) {
-                                value = object[key];
-                            } else if (object["get" + capitalize(key)] !== undefined) {
-                                value = object["get" + capitalize(key)];
-                            } else if (object["is" + capitalize(key)] !== undefined) {
-                                value = object["is" + capitalize(key)];
-                            } else {
-                                value = undefined;
-                            }
-                        }                        
+                            value = undefined;
+                        }
                     } else {
-                        value = undefined;
-                    }
+                        var capitalize = function (value) {
+                            return value.substr(0, 1).toUpperCase() + value.substr(1);
+                        };
+
+                        // Get the variable from the context
+                        if (typeof object === 'object' && key in object) {
+                            value = object[key];
+                        } else if (object["get" + capitalize(key)] !== undefined) {
+                            value = object["get" + capitalize(key)];
+                        } else if (object["is" + capitalize(key)] !== undefined) {
+                            value = object["is" + capitalize(key)];
+                        } else {
+                            value = undefined;
+                        }
+                    }                        
+                } else {
+                    value = undefined;
+                }
 
 
                     // When resolving an expression we need to pass next_token in case the expression is a function
-                    return Twig.expression.resolve.call(that, {val:value,gen:''}, context, params, next_token, object);
-                })
-                .then(function(result) {
-                    stack.push({val:result.val,gen:poped.gen+'.'+key});
-                });
+                const result = Twig.expression.resolve.call(that, {val:value,gen:''}, context, params, next_token, object)
+                stack.push({val:result.val,gen:poped.gen+'.'+key});
             }
         },
         {
@@ -954,38 +931,31 @@ module.exports = function (Twig) {
                     object,
                     value;
 
-                return parseParams(this, token.params, context)
-                .then(function(parameters) {
-                    params = parameters;
-                    return Twig.expression.parse.call(that, token.stack, context);
-                })
-                .then(function(key) {
-                    key_gen = key.gen;
-                    key = key.val;
-                    poped = stack.pop();
-                    object = poped.val;
-                    if(!Twig.doeval) return Twig.Promise.resolve({val:'',gen:`${poped.gen}[${key_gen}]`});
-                    if (object === null || object === undefined) {
-                        if (that.options.strict_variables) {
-                            throw new Twig.Error("Can't access a key " + key + " on an null or undefined object.");
-                        } else {
-                            return null;
-                        }
-                    }
-
-                    // Get the variable from the context
-                    if (typeof object === 'object' && key in object) {
-                        value = object[key];
+                params = parseParams(this, token.params, context)
+                let key = Twig.expression.parse.call(that, token.stack, context);
+                key_gen = key.gen;
+                key = key.val;
+                poped = stack.pop();
+                object = poped.val;
+                if(!Twig.doeval) return Twig.Promise.resolve({val:'',gen:`${poped.gen}[${key_gen}]`});
+                if (object === null || object === undefined) {
+                    if (that.options.strict_variables) {
+                        throw new Twig.Error("Can't access a key " + key + " on an null or undefined object.");
                     } else {
-                        value = null;
+                        return null;
                     }
+                }
 
-                    // When resolving an expression we need to pass next_token in case the expression is a function
-                    return Twig.expression.resolve.call(that, {val:value,gen:gen}, object, params, next_token);
-                })
-                .then(function(result) {
-                    stack.push(result);
-                });
+                // Get the variable from the context
+                if (typeof object === 'object' && key in object) {
+                    value = object[key];
+                } else {
+                    value = null;
+                }
+
+                // When resolving an expression we need to pass next_token in case the expression is a function
+                const result = Twig.expression.resolve.call(that, {val:value,gen:gen}, object, params, next_token);
+                stack.push(result);
             }
         },
         {
@@ -1044,7 +1014,6 @@ module.exports = function (Twig) {
         if (typeof value != 'function')
             return Twig.Promise.resolve(value);
 
-        var promise = Twig.Promise.resolve(params);
 
         /*
         If value is a function, it will have been impossible during the compile stage to determine that a following
@@ -1058,21 +1027,13 @@ module.exports = function (Twig) {
         if (next_token && next_token.type === Twig.expression.type.parameter.end) {
             //When parsing these parameters, we need to get them all back, not just the last item on the stack.
             var tokens_are_parameters = true;
-
-            promise = promise.then(function() {
-                return next_token.params && Twig.expression.parse.call(this, next_token.params, context, tokens_are_parameters);
-            })
-            .then(function(p) {
-                //Clean up the parentheses tokens on the next loop
-                next_token.cleanup = true;
-
-                return p;
-            });
+            const p = next_token.params && Twig.expression.parse.call(this, next_token.params, context, tokens_are_parameters);;
+            next_token.cleanup = true;
+            return p;
         }
 
-        return promise.then(function(params) {
-            return {gen: params ? params.map(p => p.gen).join(',') : '' , val: value.apply(object || context, params ? params.map( p => p.val) : [])};
-        });
+
+        return {gen: params ? params.map(p => p.gen).join(',') : '' , val: value.apply(object || context, params ? params.map( p => p.val) : [])};
     };
 
     /**
@@ -1296,7 +1257,7 @@ module.exports = function (Twig) {
             loop_token_fixups = [],
             binaryOperator = Twig.expression.type.operator.binary;
         
-        return Twig.async.forEach(tokens, function expressionToken(token, index) {
+        tokens.forEach(function expressionToken(token, index) {
             var token_template = null,
                 next_token = null,
                 result;
@@ -1322,29 +1283,28 @@ module.exports = function (Twig) {
 
             return result;
         })
-        .then(function loopTokenFixups() {
-            //Check every fixup and remove "key" as long as they still have "params". This covers the use case where
-            //a ":" operator is used in a loop with a "(expression):" statement. We need to be able to evaluate the expression
-            var len = loop_token_fixups.length;
-            var loop_token_fixup = null;
+        //Check every fixup and remove "key" as long as they still have "params". This covers the use case where
+        //a ":" operator is used in a loop with a "(expression):" statement. We need to be able to evaluate the expression
+        var len = loop_token_fixups.length;
+        var loop_token_fixup = null;
 
-            while(len-- > 0) {
-                loop_token_fixup = loop_token_fixups[len];
-                if (loop_token_fixup.params && loop_token_fixup.key)
-                    delete loop_token_fixup.key;
-            }
+        while(len-- > 0) {
+            loop_token_fixup = loop_token_fixups[len];
+            if (loop_token_fixup.params && loop_token_fixup.key)
+                delete loop_token_fixup.key;
+        }
 
-            //If parse has been called with a set of tokens that are parameters, we need to return the whole stack,
-            //wrapped in an Array.
-            if (tokens_are_parameters) {
-                var params = stack.splice(0);
+        //If parse has been called with a set of tokens that are parameters, we need to return the whole stack,
+        //wrapped in an Array.
+        if (tokens_are_parameters) {
+            var params = stack.splice(0);
 
-                stack.push(params);
-            }
+            stack.push(params);
+        }
 
-            // Pop the final value off the stack
-            return stack.length > 1 ? {gen:stack.map(s => s.gen).join(''),val:stack.pop().val} : stack.pop();
-        });
+        // Pop the final value off the stack
+        return stack.length > 1 ? {gen:stack.map(s => s.gen).join(''),val:stack.pop().val} : stack.pop();
+    
         
     };
 
