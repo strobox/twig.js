@@ -821,30 +821,49 @@ module.exports = function (Twig) {
         }
         obj.attrWithExpr[obj.lastCplxAtrr.tag] = obj.lastCplxAtrr;
     }
+
+    function tryParseExpressions(str) {
+      return str.replace(/\{\{(.*?)\}\}/g,(all,g1,pos,input) => {
+        return '${'+0+'}';
+      });
+    }
+    function parseAttrs(attribs) {
+      const attrs = {...attribs};
+      for(let attrName in attrs) {
+        if(attrs.hasOwnProperty(attrName)) {
+          if(!attrs[attrName] || !attrs[attrName].trim()) {
+            delete attrs[attrName];
+          } else {
+            attrs[attrName] = tryParseExpressions.call(this,attrs[attrName]);
+          }
+        }
+      }
+      return attrs;
+    }
     function traverseDomNode(context,parent,node,depth) {
-      const {nodeType,tagName,rawAttrs,classNames,...rval} = node;
+      const {type,name,rawAttrs,classNames,...rval} = node;
       const nn = {
         parent,
         depth: depth + 1,
       };
       context.nodeInContext = nn;
       let isLogic = false;
-      if(nodeType==3) {
+      if(type=="text") {
         nn.type = "text_node";
-        nn.value = clearTextEndings(rval.rawText);
-      } else if(nodeType==1) {
-        if(tagName=="gwip_wrap" || tagName=="gwip_inline") {
+        nn.value = tryParseExpressions(clearTextEndings(rval.data));
+      } else if(type=="tag") {
+        if(name=="gwip_wrap" || name=="gwip_inline") {
           isLogic = true;
           nn.type = "LOGIC";
-          let type = node.attributes['data-gwipltype'].toUpperCase();
-          let logicVal = (tagName=="gwip_inline" ?node.firstChild : node.firstChild.firstChild).rawText;
+          let type = node.attribs['data-gwipltype'].toUpperCase();
+          let logicVal = (name=="gwip_inline" ?node.children[0] : node.children[0].children[0]).data;
           let cLogic = Twig.logic.compile.call(this, {type:'logic',value:logicVal});
           Twig.logic.parse.call(this,cLogic,context)/* .then( v => {
             console.log(v);
           }).catch( e => console.error(e)) */
           nn.logic = type;
-        } else if(tagName=="gwipdir") {
-          const nextDir = node.rawText.match(dirRe);
+        } else if(name=="gwipdir") {
+          const nextDir = node.children[0].data.match(dirRe);
           let dName;
           if(nextDir && (dName = nextDir[1])) {
               let opts, argsStr = nextDir[2];
@@ -856,10 +875,10 @@ module.exports = function (Twig) {
                   return {skip: true}
               }
               if(dName=='include') {
-                  nn.tag = 'js_ReactInclude';
+                  nn.tag = 'js_ReactInclude'; /* TODO Remain one approach */
                   nn.attrs = {
-                    val: opts.args[0],
-                    src: opts.args[1]
+                    val: tryParseExpressions(opts.args[0]),
+                    src: tryParseExpressions(opts.args[1])
                   }
               } else if(dName=='require') {
                   const reqStr = opts.args[0];
@@ -879,21 +898,21 @@ module.exports = function (Twig) {
               }
 
           } else {
-            console.warn('Unknown',node.rawText);
+            console.warn('Unknown',node.data);
           }
         } else {
           nn.type = "react";
-          nn.tag = tagName;
+          nn.tag = name;
         }
       } else {
         debugger;
       }
-      const children = rval.childNodes.filter( dn => dn.tagName!='gwip_wrap_logic_val');
 
-      if(tagName!="gwipdir") {
+      if(name!="gwipdir" && type=="tag") {
+        const children = rval.children.filter( dn => dn.name!='gwip_wrap_logic_val');
         const nodes = traverseChilds.call(this,context,nn,children,depth+(isLogic?2:1))
         nn.nodes = nodes;
-        nn.attrs = {...node.attributes}
+        nn.attrs = parseAttrs(node.attribs);
       }
 
       return nn;
@@ -904,12 +923,13 @@ module.exports = function (Twig) {
     }
 
     function domToTree(context,params) {
-      const {dom, dom:{ childNodes}} = context;
-      const tempRoot = {
+      const {dom} = context;
+      const root = {
         path:'ROOT',
+
       };
-      context.nodeInContext = tempRoot;
-      const root = traverseDomNode.call(this,context,tempRoot,dom,-1);
+      context.nodeInContext = root;
+      root.nodes = traverseChilds.call(this,context,root,dom,0)      
       root.parent = root;// important; will check is root by root.parent==root
       return root;
     }
@@ -1676,8 +1696,8 @@ module.exports = function (Twig) {
     //const RCR = 'React.createElement('
     function stringifyProps(props,output) {
         for( let pk in props) {
-            output.push('"' + pk + '":');
-            output.push('"' +props[pk] + '"');
+            output.push('"' + pk + '": ');
+            output.push('`' +props[pk] + '`');
             output.push(',');
         }
     }
@@ -1716,7 +1736,7 @@ module.exports = function (Twig) {
             output.push(sft);
             if(mapToPrimitives) {
                 output.push(RCR);
-                output.push('primi.Text,null,"'+value+'")');
+                output.push('primi.Text,null,`'+value+'`)');
             } else {
                 output.push('"'+value+'"');
             }
