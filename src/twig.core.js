@@ -844,7 +844,7 @@ module.exports = function (Twig) {
     Twig.parse = function (tokens, context, allow_async) {
         var that = this,
             output = [],
-            tree = context.nodeInContext || {path:'ROOT',nodes:[]},
+            tree = context.nodeInContext || {path:'ROOT',nodes:[],depth:0},
             // Store any error that might be thrown by the promise chain.
             err = null,
 
@@ -1058,7 +1058,7 @@ module.exports = function (Twig) {
 
                         Twig.mylog.trace('attr: ',attrPart);
 
-                        nextElObj = {parent:tree._focusedNode,path:tree._focusedNode.path+'['+tree._focusedNode.nodes.length+']/',nodes:[]};
+                        nextElObj = {parent:tree._focusedNode,depth:tree._focusedNode.depth+1, path:tree._focusedNode.path+'['+tree._focusedNode.nodes.length+']/',nodes:[]};
                         processDirectives();
                         tree._focusedNode.nodes.push(nextElObj);
                         nextElObj.tag = res4;
@@ -1106,7 +1106,7 @@ module.exports = function (Twig) {
 
                     const logicType = token.token.type.split('.').pop().toUpperCase();
                     var inner_context = Twig.ChildContext(context);
-                    const nextObj = {type:'LOGIC',logic: logicType ,parent:tree._focusedNode,path:tree._focusedNode.path+'['+tree._focusedNode.nodes.length+']/'+logicType,nodes:[]};
+                    const nextObj = {type:'LOGIC',logic: logicType,depth: tree._focusedNode.depth + 1,parent:tree._focusedNode,path:tree._focusedNode.path+'['+tree._focusedNode.nodes.length+']/'+logicType,nodes:[]};
                     tree._focusedNode.nodes.push(nextObj);
                     tree._focusedNode = nextObj
                     nextObj._focusedNode = nextObj;
@@ -1144,6 +1144,7 @@ module.exports = function (Twig) {
                             } else {
                                 tree._focusedNode.nodes.push({
                                     type:"EXPR",
+                                    depth: tree._focusedNode.depth + 1,
                                     parent:tree._focusedNode,
                                     path:tree._focusedNode.path+'[EXPR]',
                                     exprGen: o.gen,
@@ -1632,6 +1633,7 @@ module.exports = function (Twig) {
             });
         });
     };
+    const TAB = "  ";
     function closeIfElse(output,node,onParentEnd,isElse) {
         Array.prototype.push.apply(output, node.ifElseStrBuild)
         if(!isElse) output.push(',{elem:()=>null,cond: p=>true }');
@@ -1649,24 +1651,25 @@ module.exports = function (Twig) {
         return res;
     }
 
-    Twig.Template.prototype.createChilds = function(nodes,_props,key,opts,output,isReactChild,loopOutput) {
+    Twig.Template.prototype.createChilds = function(nodes,depth,_props,key,opts,output,isReactChild,loopOutput) {
         const {React,inh} = opts;
-
+        let sft = '\n' + new Array(depth).fill(TAB).join("");
+        sft += TAB;
         if(nodes.length > 1) {
             // return `,[${nodes.map(b => this.afterNode(output,b,this.nodeToEl(b))).join(', ')}]`
-            if(isReactChild) output.push(',')
+            if(isReactChild) output.push(','+sft);
+            else output.push(sft);
             const resNodes = nodes.map(b => this.afterNode(output,b,this.nodeToEl(b,_props,key,opts,output,loopOutput)))
             output.pop();
             return resNodes;
         } else if(nodes.length==1) {
             // return ',' + this.afterNode(output,nodes[0],this.nodeToEl(nodes[0]))
-            if(isReactChild) output.push(',')
+            if(isReactChild) output.push(','+sft);
+            else output.push(sft);
             const resEl = this.afterNode(output,nodes[0],this.nodeToEl(nodes[0],_props,key,opts,output,loopOutput))
             output.pop();
             return resEl;
-        } else {
-            // return '';
-        }
+        } 
     }
 
     //const RCR = 'React.createElement('
@@ -1700,13 +1703,16 @@ module.exports = function (Twig) {
         return p;
     }
     const RCR = 'R.c('
+
     Twig.Template.prototype.nodeToEl = function(node,_props,key,opts,output,loopOutput) {
         const {React,inh,skipSub,mapToPrimitives} = opts;
-        const {type,value,logic,parent,forLoopCfg,tag,attrs,/* attrExpr, */attrWithExpr,nodes} = node;
+        const {type,value,logic,depth,parent,forLoopCfg,tag,attrs,/* attrExpr, */attrWithExpr,nodes} = node;
+        const sft = '\n' + new Array(depth).fill(TAB).join("");
         if(!output.noOutput && parent && type!='LOGIC' && parent.ifElseStrBuild) {
             closeIfElse(output,parent);
         }
         if(type=='text_node') { // generation + realtime
+            output.push(sft+TAB);
             if(mapToPrimitives) {
                 output.push(RCR);
                 output.push('primi.Text,null,"'+value+'")');
@@ -1725,6 +1731,7 @@ module.exports = function (Twig) {
                 hocProp = hasMutation("hoc");
             const isIncl = tag=="js_ReactInclude";
             let tagOrCmp = !isIncl && mapToPrimitives?htmlTagToPrimitive(tag) : '"'+tag+'"';
+            output.push(sft);
             if(hocFn) {
                 const fn = hocFn.args[0];
                 output.push(` R.c(${fn}( p => `);
@@ -1787,7 +1794,7 @@ module.exports = function (Twig) {
                 
             }
             output.push(',')
-            const propsOut = ['{'];
+            const propsOut = [sft + TAB+'{'];
             if(isStyled) propsOut.push("...p,");
             const staticProps = stringifyProps(attrs,propsOut);
             const exprProps = stringifyExprProps(attrWithExpr,propsOut,opts);
@@ -1804,8 +1811,8 @@ module.exports = function (Twig) {
             }
             const rProps = {...attrs,key};
 
-            const chlds = this.createChilds(nodes,_props,key,opts,output,true);
-            output.push(')');
+            const chlds = this.createChilds(nodes,depth,_props,key,opts,output,true);
+            output.push(sft+')');
             if(hocProp) output.push('),p,null)');
             if(wrapSelf) output.push(')');
             if(hocFn) {
@@ -1841,19 +1848,19 @@ module.exports = function (Twig) {
                                 ..._props,
                                 [value_var]:obj
                             };
-                        return this.createChilds(nodes,rProps,key,opts,output);
+                        return this.createChilds(nodes,depth,rProps,key,opts,output);
                     })
                 }
                 if(logic=="IF" || (logic=="ELSEIF" && !parent.skip)) { // realtime
                     delete parent.skip;
                     if(node.exprRes) {
                         parent.skip = true;
-                        return this.createChilds(nodes,_props,key,opts,[]);
+                        return this.createChilds(nodes,depth,_props,key,opts,[]);
                     }
                 }
                 if(logic == "ELSE") { // realtime
                     if(!parent.skip) {
-                        const res = this.createChilds(nodes,_props,key,opts,[]);
+                        const res = this.createChilds(nodes,depth,_props,key,opts,[]);
                         return res;
                     }
                     else delete parent.skip;
@@ -1863,8 +1870,8 @@ module.exports = function (Twig) {
             if(logic == "BLOCK" && !skipSub) { // generation + realtime
                 const blockOutput = [];
                 if(nodes.length>1) blockOutput.push('R.c(R.F,null,');
-                const res = inh && inh.child && inh.child[node.block] ? this.createChilds(inh.child[node.block].nodes,_props,key,opts,blockOutput) 
-                    : this.createChilds(nodes,_props,key,opts,blockOutput);
+                const res = inh && inh.child && inh.child[node.block] ? this.createChilds(inh.child[node.block].nodes,depth,_props,key,opts,blockOutput) 
+                    : this.createChilds(nodes,depth,_props,key,opts,blockOutput);
                     if(nodes.length==0) blockOutput.push('null');
                     if(nodes.length>1) blockOutput.push(')');
                 output.push('rdrBlockOrSelf(p, blocks["'+node.block+'"], () => ('+blockOutput.join('')+'), ovrrdn)');
@@ -1899,7 +1906,7 @@ module.exports = function (Twig) {
             }
             if( logic=="IF" || logic=="ELSEIF") {
                 if(nodes.length>1) parent.ifElseStrBuild.push('R.c(R.F,null,');
-                this.createChilds(nodes,_props,key,opts,parent.ifElseStrBuild);
+                this.createChilds(nodes,depth,_props,key,opts,parent.ifElseStrBuild);
                 if(nodes.length>1) parent.ifElseStrBuild.push(')');
                 parent.ifElseStrBuild.push(`,cond:p => ${node.exprGen}}`)
             }
@@ -1908,7 +1915,7 @@ module.exports = function (Twig) {
                 if(parent.ifElseStrBuild) {
                     parent.ifElseStrBuild.push(',{elem: p=> ');
                     if(nodes.length>1) parent.ifElseStrBuild.push('R.c(R.F,null,');
-                    this.createChilds(nodes,_props,key,opts,parent.ifElseStrBuild);
+                    this.createChilds(nodes,depth,_props,key,opts,parent.ifElseStrBuild);
                     if(nodes.length>1) parent.ifElseStrBuild.push(')');
                     parent.ifElseStrBuild.push(',cond: p => true}')
                     closeIfElse(output,parent,false,true);
@@ -1942,7 +1949,7 @@ module.exports = function (Twig) {
             else output.push(` const key = idx;`);
             output.push('const res = ');
             if(nodes.length>1) output.push('R.c(R.F,{key},');
-            this.createChilds(nodes,_props,key,opts,output,false,true);
+            this.createChilds(nodes,depth,_props,key,opts,output,false,true);
             if(nodes.length>1) output.push(')');
             output.push('; return res;})');
             output.push(',');                   
@@ -1974,8 +1981,7 @@ module.exports = function (Twig) {
         const output = [];
 
         const strGenCmp = nodes.length > 1 ?
-             // `React.createElement('heading',null${this.createChilds(nodes)}` :
-             () => { output.push('R.c(R.F,null,'); this.createChilds(nodes,{},null,opt,output); output.push(')') } :
+             () => { output.push('R.c(R.F,null,'); this.createChilds(nodes,0,{},null,opt,output); output.push(')') } :
              () => { 
                 this.nodeToEl(nodes[0],{},null,opt,output);
                 if(!tree.ifElseStrBuild) output.pop()
@@ -1992,8 +1998,7 @@ module.exports = function (Twig) {
         const noOutput = [];
         noOutput.noOutput = true;
         const ReactCmp = nodes.length > 1 ?
-             // `React.createElement('heading',null${this.createChilds(nodes)}` :
-             _props => opt.React.createElement(opt.React.Fragment,null,this.createChilds(nodes,_props,null,opt,noOutput)) :
+             _props => opt.React.createElement(opt.React.Fragment,null,this.createChilds(nodes,0,_props,null,opt,noOutput)) :
              _props => this.nodeToEl(nodes[0],_props,null,opt,noOutput);
 
         const cmpString = /* isExtend ? '' : */ this.nodesToSting(nodes,tree,opt)
