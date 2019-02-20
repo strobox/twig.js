@@ -751,15 +751,16 @@ module.exports = function (Twig) {
 
     const cmntRe = /<!--([\s\S]*?)-->/g,
         dirRe = /[\s-]@([\w_$][\w\d_$]+)\s*\[(.*?)\]/;
-    function processComentsParse(tpl,token_value,directives,context) {
+    function processCommentsParse(tpl,token_value,directives,context) {
         const cmnts = [], replaces = [];
-        let nextCmnt, nextDir, dName;
+        let nextCmnt, nextDir;
         while((nextCmnt = cmntRe.exec(token_value)) !== null) {
             if(!nextCmnt[1]) {
                 replaces.push('')
                 continue;
             }
             nextDir = nextCmnt[1].match(dirRe);
+            let dName;
             if(nextDir && (dName = nextDir[1])) {
                 let opts, argsStr = nextDir[2];
                 try {
@@ -822,7 +823,10 @@ module.exports = function (Twig) {
     }
     function traverseDomNode(context,parent,node,depth) {
       const {nodeType,tagName,rawAttrs,classNames,...rval} = node;
-      const nn = {};
+      const nn = {
+        parent,
+        depth: depth + 1,
+      };
       context.nodeInContext = nn;
       let isLogic = false;
       if(nodeType==3) {
@@ -835,42 +839,79 @@ module.exports = function (Twig) {
           let type = node.attributes['data-gwipltype'].toUpperCase();
           let logicVal = (tagName=="gwip_inline" ?node.firstChild : node.firstChild.firstChild).rawText;
           let cLogic = Twig.logic.compile.call(this, {type:'logic',value:logicVal});
-          Twig.logic.parse.call(this,cLogic,context).then( v => {
+          Twig.logic.parse.call(this,cLogic,context)/* .then( v => {
             console.log(v);
-          }).catch( e => console.error(e))
+          }).catch( e => console.error(e)) */
           nn.logic = type;
-        // } else if() {
+        } else if(tagName=="gwipdir") {
+          const nextDir = node.rawText.match(dirRe);
+          let dName;
+          if(nextDir && (dName = nextDir[1])) {
+              let opts, argsStr = nextDir[2];
+              try {
+                  argsStr = argsStr.replace( /(["'])(?:(?=(\\?))\2[\s\S])*?\1/g, m => m.replace(/(^'|'$)/g,'"') )
+                  opts = JSON.parse('{"args":['+argsStr+']}');
+              } catch(e) {
+                  console.error('Bad directive: ',e);
+                  return {skip: true}
+              }
+              if(dName=='include') {
+                  nn.tag = 'js_ReactInclude';
+                  nn.attrs = {
+                    val: opts.args[0],
+                    src: opts.args[1]
+                  }
+              } else if(dName=='require') {
+                  const reqStr = opts.args[0];
+                  this.requires.push(reqStr);
+                  return {skip: true}
+                  try {
+                      const imports = reqStr.match(/import(.*)from\s+['"]/)[1].replace(/[,\{\}]/g,' ').replace(/\s+/g,' ').trim().split(' ');
+                      context._$local_scope = context._$local_scope.concat(imports);
+                  } catch(e) {
+                      console.error(e);
+                  }
+              } else {
+                  const directives = nn.directives || (nn.directives = {});
+                  if(!directives[dName]) directives[dName] = [];
+                  directives[dName].push(opts);
+
+              }
+
+          } else {
+            console.warn('Unknown',node.rawText);
+          }
         } else {
           nn.type = "react";
           nn.tag = tagName;
         }
+      } else {
+        debugger;
       }
       const children = rval.childNodes.filter( dn => dn.tagName!='gwip_wrap_logic_val');
-      const res = {
-        parent,
-        ...nn,
-        depth: depth+1,
-      } 
-      const nodes = traverseChilds.call(this,context,res,children,depth+(isLogic?2:1))
-      res.nodes = nodes;
 
-      return res;
+      if(tagName!="gwipdir") {
+        const nodes = traverseChilds.call(this,context,nn,children,depth+(isLogic?2:1))
+        nn.nodes = nodes;
+        nn.attrs = {...node.attributes}
+      }
+
+      return nn;
     }
     function traverseChilds(context,parent,chilren,depth) {
       return chilren.map( node => traverseDomNode.call(this,context,parent,node,depth))
-      .filter( n => n.type!="text_node" || !!n.value); // filter out empty strings
+      .filter( n => !n.skip && (n.type=="text_node" ? !!n.value : true)); // filter out empty strings
     }
 
     function domToTree(context,params) {
       const {dom, dom:{ childNodes}} = context;
-      const tree = {
+      const tempRoot = {
         path:'ROOT',
-        depth:0
       };
-      context.nodeInContext = tree;
-      tree.nodes = [traverseDomNode.call(this,context,tree,dom,0)];
-      console.log(tree)
-      return tree;
+      context.nodeInContext = tempRoot;
+      const root = traverseDomNode.call(this,context,tempRoot,dom,-1);
+      root.parent = root;// important; will check is root by root.parent==root
+      return root;
     }
     Twig.parse = function (tokens, context) {
         if(!tokens) return Promise.resolve('');
@@ -952,7 +993,7 @@ module.exports = function (Twig) {
                         that.styleBlocks.push(styleDet);
                     }
                     try {
-                        token_value = processComentsParse(that,token_value,directives,context);
+                        token_value = processCommentsParse(that,token_value,directives,context);
                     } catch(e){ 
                         console.error(e);
                     }
@@ -1981,7 +2022,6 @@ module.exports = function (Twig) {
     };
 
     Twig.Template.prototype.parseToReact = function (context, params) {
-      console.log(this);
       this.reset(); // !important
       context._$local_scope = context._$local_scope = [];
 
