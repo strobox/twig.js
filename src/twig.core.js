@@ -801,6 +801,11 @@ module.exports = function (Twig) {
         // if(replaces.length) console.log(replaces);
         return replaces.length ? token_value.replace(cmntRe, () => replaces[i++]) : token_value;
     }
+    
+    function clearTextEndings(t) {
+      return t.replace(/^[\r\n]+\s*/,"").replace(/\s*[\r\n]+\s*$/,"")
+          .replace(/[\r\n]+/g,"\n").replace(/"/g,'\\"');
+    }
     /**
      * Parse a compiled template.
      *
@@ -815,6 +820,37 @@ module.exports = function (Twig) {
             console.warn('Attribute will be overriden!',obj.lastCplxAtrr.tag);
         }
         obj.attrWithExpr[obj.lastCplxAtrr.tag] = obj.lastCplxAtrr;
+    }
+    function traverseDomNode(node,depth) {
+      const {nodeType,tagName,rawAttrs,classNames,...rval} = node;
+      const nn = {}
+      if(nodeType==3) {
+        nn.type = "text_node";
+        nn.value = clearTextEndings(rval.rawText);
+      } else if(nodeType==1) {
+        nn.type = "react";
+        nn.tag = tagName;
+      }
+      return {
+        ...nn,
+        depth: depth+1,
+        nodes: traverseChilds(rval.childNodes,depth+1)
+      } 
+    }
+    function traverseChilds(chilren,depth) {
+      return chilren.map( node => traverseDomNode(node,depth))
+      .filter( n => n.type!="text_node" || !!n.value); // filter out empty strings
+    }
+
+    Twig.domToTree = function(context,params) {
+      const {dom, dom:{ childNodes}} = context;
+      const tree = {
+        path:'ROOT',
+        nodes:traverseChilds(childNodes,0),
+        depth:0
+      };
+      console.log(tree)
+      return tree;
     }
     Twig.parse = function (tokens, context) {
         var that = this,
@@ -847,8 +883,7 @@ module.exports = function (Twig) {
         }
         function tnSantize(obj,t) {
             if(!t) return;
-            const value = t.replace(/^[\r\n]+\s*/,"").replace(/\s*[\r\n]+\s*$/,"")
-                .replace(/[\r\n]+/g,"\n").replace(/"/g,'\\"');
+            t = clearTextEndings(t);
             if(!value) return;
             obj.nodes.push( {type:"text_node",value})
         }
@@ -1400,6 +1435,7 @@ module.exports = function (Twig) {
     Twig.Template = function ( params ) {
         var data = params.data,
             id = params.id,
+            dom = params.dom,
             blocks = params.blocks,
             includes = {},
             styleBlocks = [],
@@ -1433,6 +1469,7 @@ module.exports = function (Twig) {
         //
 
         this.id     = id;
+        this.dom     = dom;
         this.method = method;
         this.base   = base;
         this.path   = path;
@@ -1559,14 +1596,14 @@ module.exports = function (Twig) {
         sft += TAB;
         if(nodes.length > 1) {
             // return `,[${nodes.map(b => this.afterNode(output,b,this.nodeToEl(b))).join(', ')}]`
-            if(isReactChild) output.push(','+sft);
+            if(isReactChild) output.push(',');
             else output.push(sft);
             const resNodes = nodes.map(b => this.afterNode(output,b,this.nodeToEl(b,_props,key,opts,output,loopOutput)))
             output.pop();
             return resNodes;
         } else if(nodes.length==1) {
             // return ',' + this.afterNode(output,nodes[0],this.nodeToEl(nodes[0]))
-            if(isReactChild) output.push(','+sft);
+            if(isReactChild) output.push(',');
             else output.push(sft);
             const resEl = this.afterNode(output,nodes[0],this.nodeToEl(nodes[0],_props,key,opts,output,loopOutput))
             output.pop();
@@ -1614,7 +1651,7 @@ module.exports = function (Twig) {
             closeIfElse(output,parent);
         }
         if(type=='text_node') { // generation + realtime
-            output.push(sft+TAB);
+            output.push(sft);
             if(mapToPrimitives) {
                 output.push(RCR);
                 output.push('primi.Text,null,"'+value+'")');
@@ -1622,7 +1659,7 @@ module.exports = function (Twig) {
                 output.push('"'+value+'"');
             }
             output.push(',');
-            node.output = output.join('');
+            //node.output = output.join('');
             return value; //return `"${value}"`;
         } else if(type=='react') { // generation + realtime
             const getFirstDirective = dir => node.directives && node.directives[dir] && node.directives[dir].length && node.directives[dir][node.directives[dir].length-1],
@@ -1714,7 +1751,8 @@ module.exports = function (Twig) {
             const rProps = {...attrs,key};
 
             const chlds = this.createChilds(nodes,depth,_props,key,opts,output,true);
-            output.push(sft+')');
+            output.push(sft);
+            output.push(')');
             if(hocProp) output.push('),p,null)');
             if(wrapSelf) output.push(')');
             if(hocFn) {
@@ -1722,7 +1760,7 @@ module.exports = function (Twig) {
                 output.push(`),p,null)`);
             }
             output.push(',');
-            node.output = output.join('');
+            //node.output = output.join('');
 
             return !chlds || chlds.constructor!=Array ? 
                 React.createElement(tag,rProps,chlds) :
@@ -1883,7 +1921,7 @@ module.exports = function (Twig) {
         const output = [];
 
         const strGenCmp = nodes.length > 1 ?
-             () => { output.push('R.c(R.F,null,'); this.createChilds(nodes,0,{},null,opt,output); output.push(')') } :
+             () => { output.push('R.c(R.F,null,'); this.createChilds(nodes,0,{},null,opt,output); output.push('\n)') } :
              () => { 
                 this.nodeToEl(nodes[0],{},null,opt,output);
                 if(!tree.ifElseStrBuild) output.pop()
@@ -1915,6 +1953,14 @@ module.exports = function (Twig) {
         const res = this.nodesToComponent(tree, Object.assign({},params,contextAndOpt),this.isExtend);
         res.tree = tree;
         return res;
+    };
+
+    Twig.Template.prototype.parseToReact = function (context, params) {
+      console.log(this);
+      const tree = Twig.domToTree.call(this,Object.assign({dom:this.dom},context),params);
+      const res = this.nodesToComponent(tree, Object.assign({},params,context),this.isExtend);
+      res.tree = tree;
+      return res;
     };
 
 

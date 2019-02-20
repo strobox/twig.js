@@ -15,6 +15,9 @@ module.exports = function (Twig) {
      *
      * @return {Twig.Template} A Twig template ready for rendering.
      */
+    Twig.exports.rtwig = function twig(params) {
+      return new Twig.Template(params);
+    }
     Twig.exports.twig = function twig(params) {
         'use strict';
         var id = params.id,
