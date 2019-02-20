@@ -621,7 +621,6 @@ module.exports = function (Twig) {
                     }
                 }
             };
-
             while (tokens.length > 0) {
                 token = tokens.shift();
                 prev_output = output[output.length - 1];
@@ -821,34 +820,51 @@ module.exports = function (Twig) {
         }
         obj.attrWithExpr[obj.lastCplxAtrr.tag] = obj.lastCplxAtrr;
     }
-    function traverseDomNode(node,depth) {
+    function traverseDomNode(context,node,depth) {
       const {nodeType,tagName,rawAttrs,classNames,...rval} = node;
-      const nn = {}
+      const nn = {};
+      context.nodeInContext = nn;
+      let isLogic = false;
       if(nodeType==3) {
         nn.type = "text_node";
         nn.value = clearTextEndings(rval.rawText);
       } else if(nodeType==1) {
-        nn.type = "react";
-        nn.tag = tagName;
+        isLogic = true;
+        if(tagName=="gwip_wrap" || tagName=="gwip_inline") {
+          nn.type = "LOGIC";
+          let type = node.attributes['data-gwipltype'].toUpperCase();
+          let logicVal = (tagName=="gwip_inline" ?node.firstChild : node.firstChild.firstChild).rawText;
+          let cLogic = Twig.logic.compile.call(this, {type:'logic',value:logicVal});
+          Twig.logic.parse.call(this,cLogic,context).then( v => {
+            console.log(v);
+          }).catch( e => console.error(e))
+          nn.logic = type;
+        // } else if() {
+        } else {
+          nn.type = "react";
+          nn.tag = tagName;
+        }
       }
+      const children = rval.childNodes.filter( dn => dn.tagName!='gwip_wrap_logic_val');
       return {
         ...nn,
         depth: depth+1,
-        nodes: traverseChilds(rval.childNodes,depth+1)
+        nodes: traverseChilds.call(this,context,children,depth+(isLogic?2:1))
       } 
     }
-    function traverseChilds(chilren,depth) {
-      return chilren.map( node => traverseDomNode(node,depth))
+    function traverseChilds(context,chilren,depth) {
+      return chilren.map( node => traverseDomNode.call(this,context,node,depth))
       .filter( n => n.type!="text_node" || !!n.value); // filter out empty strings
     }
 
-    Twig.domToTree = function(context,params) {
+    function domToTree(context,params) {
       const {dom, dom:{ childNodes}} = context;
       const tree = {
         path:'ROOT',
-        nodes:traverseChilds(childNodes,0),
         depth:0
       };
+      context.nodeInContext = tree;
+      tree.nodes = traverseChilds.call(this,context,childNodes,0);
       console.log(tree)
       return tree;
     }
@@ -884,8 +900,8 @@ module.exports = function (Twig) {
         function tnSantize(obj,t) {
             if(!t) return;
             t = clearTextEndings(t);
-            if(!value) return;
-            obj.nodes.push( {type:"text_node",value})
+            if(!t) return;
+            obj.nodes.push( {type:"text_node",value:t})
         }
         let  _prevOpenTags = [];
         tokens.forEach(function parseToken(token) {
@@ -1834,7 +1850,11 @@ module.exports = function (Twig) {
             output.push(',')
             if(output.noOutput) return node.exprRes;
         }
+        if(!output.noOutput && type=='LOGIC') {
+          output.push(sft);
+        }
         if(!output.noOutput && type=='LOGIC' && (logic=="IF" || logic=="ELSEIF" || logic == "ELSE") ) { // generation
+            
             if(logic == "IF" ) {
                 if(parent.ifElseStrBuild) {
                     closeIfElse(output,parent);
@@ -1887,11 +1907,11 @@ module.exports = function (Twig) {
             output.push(`.map( (${value_var},idx) => {`);
             if(key_var) output.push(` const key = ${value_var}.${key_var} || idx;`);
             else output.push(` const key = idx;`);
-            output.push('const res = ');
+            output.push(sft+TAB+'const res = ');
             if(nodes.length>1) output.push('R.c(R.F,{key},');
             this.createChilds(nodes,depth,_props,key,opts,output,false,true);
             if(nodes.length>1) output.push(')');
-            output.push('; return res;})');
+            output.push('; '+sft+TAB+'return res;})');
             output.push(',');                   
             
         }
@@ -1957,7 +1977,10 @@ module.exports = function (Twig) {
 
     Twig.Template.prototype.parseToReact = function (context, params) {
       console.log(this);
-      const tree = Twig.domToTree.call(this,Object.assign({dom:this.dom},context),params);
+      this.reset(); // !important
+      context._$local_scope = context._$local_scope = [];
+
+      const tree = domToTree.call(this,Object.assign({dom:this.dom},context),params);
       const res = this.nodesToComponent(tree, Object.assign({},params,context),this.isExtend);
       res.tree = tree;
       return res;
