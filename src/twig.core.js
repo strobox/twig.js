@@ -820,7 +820,7 @@ module.exports = function (Twig) {
         }
         obj.attrWithExpr[obj.lastCplxAtrr.tag] = obj.lastCplxAtrr;
     }
-    function traverseDomNode(context,node,depth) {
+    function traverseDomNode(context,parent,node,depth) {
       const {nodeType,tagName,rawAttrs,classNames,...rval} = node;
       const nn = {};
       context.nodeInContext = nn;
@@ -829,8 +829,8 @@ module.exports = function (Twig) {
         nn.type = "text_node";
         nn.value = clearTextEndings(rval.rawText);
       } else if(nodeType==1) {
-        isLogic = true;
         if(tagName=="gwip_wrap" || tagName=="gwip_inline") {
+          isLogic = true;
           nn.type = "LOGIC";
           let type = node.attributes['data-gwipltype'].toUpperCase();
           let logicVal = (tagName=="gwip_inline" ?node.firstChild : node.firstChild.firstChild).rawText;
@@ -846,14 +846,18 @@ module.exports = function (Twig) {
         }
       }
       const children = rval.childNodes.filter( dn => dn.tagName!='gwip_wrap_logic_val');
-      return {
+      const res = {
+        parent,
         ...nn,
         depth: depth+1,
-        nodes: traverseChilds.call(this,context,children,depth+(isLogic?2:1))
       } 
+      const nodes = traverseChilds.call(this,context,res,children,depth+(isLogic?2:1))
+      res.nodes = nodes;
+
+      return res;
     }
-    function traverseChilds(context,chilren,depth) {
-      return chilren.map( node => traverseDomNode.call(this,context,node,depth))
+    function traverseChilds(context,parent,chilren,depth) {
+      return chilren.map( node => traverseDomNode.call(this,context,parent,node,depth))
       .filter( n => n.type!="text_node" || !!n.value); // filter out empty strings
     }
 
@@ -864,11 +868,12 @@ module.exports = function (Twig) {
         depth:0
       };
       context.nodeInContext = tree;
-      tree.nodes = traverseChilds.call(this,context,childNodes,0);
+      tree.nodes = [traverseDomNode.call(this,context,tree,dom,0)];
       console.log(tree)
       return tree;
     }
     Twig.parse = function (tokens, context) {
+        if(!tokens) return Promise.resolve('');
         var that = this,
             output = [],
             tree = context.nodeInContext || {path:'ROOT',nodes:[],depth:0},
@@ -1850,25 +1855,25 @@ module.exports = function (Twig) {
             output.push(',')
             if(output.noOutput) return node.exprRes;
         }
-        if(!output.noOutput && type=='LOGIC') {
+        /* if(!output.noOutput && type=='LOGIC') {
           output.push(sft);
-        }
+        } */
         if(!output.noOutput && type=='LOGIC' && (logic=="IF" || logic=="ELSEIF" || logic == "ELSE") ) { // generation
             
             if(logic == "IF" ) {
                 if(parent.ifElseStrBuild) {
                     closeIfElse(output,parent);
                     }
-                parent.ifElseStrBuild = ['[{elem: p=> '];
+                parent.ifElseStrBuild = [`[${sft+TAB}{elem: p=> `];
             }
             if( logic=="ELSEIF") {
-                parent.ifElseStrBuild.push(',{elem: p=> ');
+                parent.ifElseStrBuild.push(`,${sft+TAB}{elem: p=> `);
             }
             if( logic=="IF" || logic=="ELSEIF") {
                 if(nodes.length>1) parent.ifElseStrBuild.push('R.c(R.F,null,');
                 this.createChilds(nodes,depth,_props,key,opts,parent.ifElseStrBuild);
                 if(nodes.length>1) parent.ifElseStrBuild.push(')');
-                parent.ifElseStrBuild.push(`,cond:p => ${node.exprGen}}`)
+                parent.ifElseStrBuild.push(`,${sft+TAB}cond:p => ${node.exprGen}}`)
             }
             if(logic == "ELSE") {
 

@@ -244,7 +244,6 @@ module.exports = function (Twig) {
             },
             parse: function (token, context, continue_chain) {
                 // Parse expression
-              debugger;
                 var output = [], that = this;
                 const {key_var,value_var} = token;
                 const forLoopCfg = {key_var,value_var};
