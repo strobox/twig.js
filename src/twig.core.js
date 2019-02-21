@@ -547,7 +547,6 @@ module.exports = function (Twig) {
                 next = null;
 
             var compile_output = function(token) {
-                debugger;
                 Twig.expression.compile.call(that, token);
                 if (stack.length > 0) {
                     intermediate_output.push(token);
@@ -805,7 +804,7 @@ module.exports = function (Twig) {
     
     function clearTextEndings(t) {
       return t.replace(/^[\r\n]+\s*/,"").replace(/\s*[\r\n]+\s*$/,"")
-          .replace(/[\r\n]+/g,"\n").replace(/"/g,'\\"');
+          .replace(/[\r\n]+/g,"\n");
     }
     /**
      * Parse a compiled template.
@@ -823,14 +822,43 @@ module.exports = function (Twig) {
         obj.attrWithExpr[obj.lastCplxAtrr.tag] = obj.lastCplxAtrr;
     }
 
+    function parseExpression(str,context) {
+      let expr = Twig.expression.compile.call(this, {type:'output',value:str});
+      let exprStr = `err_expr(${str})`
+      exprStr = Twig.expression.parse.call(this,expr.stack,context);
+      if(typeof exprStr == undefined) {
+        exprStr = `err_expr(${g1})`;
+      } else if('gen' in exprStr) {
+        exprStr = exprStr.gen.valueOf();
+      } else if(exprStr.constructor==Object) {
+        exprStr = JSON.stringify(exprStr);
+      }
+      return exprStr;
+    }
+
     function tryParseExpressions(str,context) {
-      if(!str) return str;
-      return str.replace(/\{\{(.*?)\}\}/g,(all,g1,pos,input) => {
-        let expr = Twig.expression.compile.call(this, {type:'output',value:g1});
-        let exprStr = `err_expr(${g1})`
-        exprStr = Twig.expression.parse.call(this,expr.stack,context);
-        return '${'+exprStr+'}';
-      });
+      if(!str) return {_val:str};
+      let wholeAttrExp;
+      if(wholeAttrExp = str.match(/^\s*\{\{([\s\S]*?)\}\}\s*$/)) {
+        return {
+          expr:true,
+          whole: true,
+          _val: parseExpression.call(this,wholeAttrExp[1],context)
+        }
+      } else if(str.match(/\{\{([\s\S]*?)\}\}/)) {
+        return {
+          expr: true,
+          whole: false,
+          _val: str.replace(/\{\{([\s\S]*?)\}\}/g,(all,g1,pos,input) => {
+            return '${'+parseExpression.call(this,g1,context)+'}';
+          })
+        }
+      } else {
+        return {
+          _val: str
+        }
+      }
+
     }
     function parseAttrs(attribs,context) {
       const attrs = {...attribs};
@@ -839,23 +867,38 @@ module.exports = function (Twig) {
           if(!attrs[attrName] || !attrs[attrName].trim()) {
             delete attrs[attrName];
           } else {
-            attrs[attrName] = tryParseExpressions.call(this,attrs[attrName],context);
+            attrs[attrName=='class'?'className':attrName]
+             = tryParseExpressions.call(this,attrs[attrName],context);
           }
         }
       }
       return attrs;
     }
     function traverseDomNode(context,parent,node,depth) {
-      const {type,name,rawAttrs,classNames,...rval} = node;
+      const {type,name,rawAttrs,classNames,directives,...rval} = node;
       const nn = {
         parent,
+        directives,
         depth: depth + 1,
       };
       context.nodeInContext = nn;
       let isLogic = false;
       if(type=="text") {
         nn.type = "text_node";
-        nn.value = tryParseExpressions(clearTextEndings(rval.data),context);
+        const _expr = tryParseExpressions(clearTextEndings(rval.data),context);
+        if(_expr.expr) {
+          if(_expr.whole) {
+            nn.type = 'EXPR';
+            nn.exprGen = _expr._val == 'p.parent()' ? 'parentCmp()' : _expr._val; //TODO Do it less tricky way maybe
+            return nn;
+          } else {
+            if(!_expr._val) return {skip:true};
+            nn.value = '`' + _expr._val + '`';
+          }
+        } else {
+          if(!_expr._val) return {skip:true};
+          nn.value = '"'+_expr._val+'"';
+        }
       } else if(type=="tag") {
         if(name=="gwip_wrap" || name=="gwip_inline") {
           isLogic = true;
@@ -869,6 +912,7 @@ module.exports = function (Twig) {
           nn.logic = type;
         } else if(name=="js_script") {
           this.rawScripts.push(node.children[0].data);
+          return {skip:true};
         } else {
           nn.type = "react";
           nn.tag = name;
@@ -887,10 +931,10 @@ module.exports = function (Twig) {
             }
             if(dName=='include') {
                 nn.tag = 'js_ReactInclude'; /* TODO Remain one approach */
-                nn.attrs = {
-                  val: tryParseExpressions(opts.args[0],context),
-                  src: tryParseExpressions(opts.args[1],context)
-                }
+                nn.attrs = parseAttrs({
+                  val: opts.args[0],
+                  src: opts.args[1]
+                })
             } else if(dName=='require') {
                 const reqStr = opts.args[0];
                 this.requires.push(reqStr);
@@ -902,9 +946,15 @@ module.exports = function (Twig) {
                     console.error(e);
                 }
             } else {
-                const directives = nn.directives || (nn.directives = {});
-                if(!directives[dName]) directives[dName] = [];
-                directives[dName].push(opts);
+                let nextEl = node.next;
+                for ( ; nextEl.type!='tag' && nextEl.next ; nextEl = nextEl.next ) {
+                }
+                if(nextEl.type=='tag' ) {
+                    const directives = nextEl.directives || (nextEl.directives = {});
+                    if(!directives[dName]) directives[dName] = [];
+                    directives[dName].push(opts);
+                }
+                return {skip:true};
 
             }
 
@@ -927,7 +977,7 @@ module.exports = function (Twig) {
     }
     function traverseChilds(context,parent,chilren,depth) {
       return chilren.map( node => traverseDomNode.call(this,context,parent,node,depth))
-      .filter( n => !n.skip && (n.type=="text_node" ? !!n.value : true)); // filter out empty strings
+      .filter( n => !n.skip); // filter out empty strings
     }
 
     function domToTree(context,params) {
@@ -973,7 +1023,7 @@ module.exports = function (Twig) {
         }
         function tnSantize(obj,t) {
             if(!t) return;
-            t = clearTextEndings(t);
+            t = clearTextEndings(t).replace(/"/g,'\\"');
             if(!t) return;
             obj.nodes.push( {type:"text_node",value:t})
         }
@@ -1035,7 +1085,7 @@ module.exports = function (Twig) {
                         const attrRe = /( (([\w-]+)=['"])(.+?)['"])/g
                         while((propsRes = attrRe.exec(attrPart)) !== null) {
                            const propName = propsRes[3] == "class" ? "className" : propsRes[3];
-                           obj.attrs[propName] = propsRes[4];
+                           obj.attrs[propName] = {_val:propsRes[4]};
                           
                         }
                         attrPart = attrPart.slice(1); // remove previously added space " "
@@ -1704,7 +1754,14 @@ module.exports = function (Twig) {
     function stringifyProps(props,output) {
         for( let pk in props) {
             output.push('"' + pk + '": ');
-            output.push('`' +props[pk] + '`');
+            const {_val,whole,expr} = props[pk];
+            if(expr) {
+              if(whole)
+                output.push(_val);
+              else
+                output.push('`' +_val + '`')
+            } else 
+            output.push('"' + _val + '"');
             output.push(',');
         }
     }
@@ -1743,9 +1800,9 @@ module.exports = function (Twig) {
             output.push(sft);
             if(mapToPrimitives) {
                 output.push(RCR);
-                output.push('primi.Text,null,`'+value+'`)');
+                output.push('primi.Text,null,'+value+')');
             } else {
-                output.push('"'+value+'"');
+                output.push(value);
             }
             output.push(',');
             //node.output = output.join('');
@@ -1757,19 +1814,22 @@ module.exports = function (Twig) {
                 override = getFirstDirective("override"),
                 hocFn = getFirstDirective("hoc"),
                 hocProp = hasMutation("hoc");
-            const isIncl = tag=="js_ReactInclude";
+            const isIncl = tag=="js_ReactInclude"; /* is include by tag */
             let tagOrCmp = !isIncl && mapToPrimitives?htmlTagToPrimitive(tag) : '"'+tag+'"';
             output.push(sft);
             if(hocFn) {
                 const fn = hocFn.args[0];
                 output.push(` R.c(${fn}( p => `);
             }
-            if(isIncl) {
-                if(attrs.src != "fromProps")
-                    tagOrCmp = attrs.val;
-                else {
-                    tagOrCmp = "p => 'Error include: ' + p.val"; // TODO warn only on dev mode, else only console warn
-                    output.push(`p['${attrs.val}'] ? p['${attrs.val}'](p) : `)
+            if(isIncl) { /* is include by tag */
+                const {src,val} = attrs;
+                if(src && src._val == "fromProps") {
+                    output.push(`p['${val._val}'] ? p['${val._val}'](p) : `)
+                } 
+                if(val && val._val) {
+                    tagOrCmp = val._val;
+                } else {
+                  tagOrCmp = "p => 'Error include: ' + p.val"; // TODO warn only on dev mode, else only console warn
                 }
             }
             if(wrapSelf) {
@@ -1824,8 +1884,8 @@ module.exports = function (Twig) {
             output.push(',')
             const propsOut = [sft + TAB+'{'];
             if(isStyled) propsOut.push("...p,");
-            const staticProps = stringifyProps(attrs,propsOut);
-            const exprProps = stringifyExprProps(attrWithExpr,propsOut,opts);
+            stringifyProps(attrs,propsOut);
+            stringifyExprProps(attrWithExpr,propsOut,opts);
             propsOut.pop();
             const propsStr = propsOut.length > 1 ? propsOut.join('')+'}' : (isStyled ? '{...p}' : 'null');
             if(loopOutput || (override && override.args[1])) {
@@ -1854,10 +1914,10 @@ module.exports = function (Twig) {
             return !chlds || chlds.constructor!=Array ? 
                 React.createElement(tag,rProps,chlds) :
                 React.createElement.apply(React,[tag,rProps,...chlds]);
-        } else if(tag=="js_ReactInclude") {
+        } else if(tag=="js_ReactInclude") { /* is include imitation generated from comments */
             try {
-                const Cmp = attrs.val;
-                if(attrs.src && attrs.src == "fromProps")
+                const Cmp = attrs.val._val;
+                if(attrs.src && attrs.src._val == "fromProps")
                     output.push(`p['${Cmp}'] ? p['${Cmp}'](p) : null `);
                 else 
                     output.push(RCR+`${Cmp}, p, null) `);
