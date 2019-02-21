@@ -155,7 +155,7 @@ module.exports = function (Twig) {
             },
             parse: function(token, stack, context) {
                 var value = stack.pop().val;
-
+                debugger;
                 const params = parseParams(this, token.params, context);
                   var result = Twig.test(token.filter, value, params);
 
@@ -795,23 +795,24 @@ module.exports = function (Twig) {
 
                 var that = this,
                     fn = token.fn,
-                    value;
+                    value = '';
 
                 const params = parseParams(this, token.params, context);
-                if(!Twig.doeval)
-                    return {val:'',gen:params.map( p => p.gen).join(',')};
+                if(Twig.doeval) {
+                  if (Twig.functions[fn]) {
+                      // Get the function from the built-in functions
+                      value = Twig.functions[fn].apply(that, params);
 
-                if (Twig.functions[fn]) {
-                    // Get the function from the built-in functions
-                    value = Twig.functions[fn].apply(that, params);
+                  } else if (typeof context[fn] == 'function') {
+                      // Get the function from the user/context defined functions
+                      value = context[fn].apply(context, params);
 
-                } else if (typeof context[fn] == 'function') {
-                    // Get the function from the user/context defined functions
-                    value = context[fn].apply(context, params);
-
-                } else {
-                    throw new Twig.Error(fn + ' function does not exist and is not defined in the context');
+                  } else {
+                      throw new Twig.Error(fn + ' function does not exist and is not defined in the context');
+                  }
                 }
+
+
 
                 const result = {val:value,gen:params.map( p => p.gen).join(',')};
                 const isNotProp = context._$not_props && context._$not_props.indexOf(token.value)>=0;
@@ -843,7 +844,7 @@ module.exports = function (Twig) {
             },
             parse: function(token, stack, context) {
                 // Get the variable from the context
-                const valu = Twig.expression.resolve.call(this, context[token.value], context)
+                const value = Twig.expression.resolve.call(this, context[token.value], context)
                 const isNotProp = context._$not_props && context._$not_props.indexOf(token.value)>=0;
                 let propOrNo = isNotProp ?
                     '' : 'p.';
@@ -928,8 +929,9 @@ module.exports = function (Twig) {
                     params = null,
                     poped = null,
                     key_gen = '',
+                    gen = '',
                     object,
-                    value;
+                    value = '';
 
                 params = parseParams(this, token.params, context)
                 let key = Twig.expression.parse.call(that, token.stack, context);
@@ -937,21 +939,26 @@ module.exports = function (Twig) {
                 key = key.val;
                 poped = stack.pop();
                 object = poped.val;
-                if(!Twig.doeval) return Twig.Promise.resolve({val:'',gen:`${poped.gen}[${key_gen}]`});
-                if (object === null || object === undefined) {
-                    if (that.options.strict_variables) {
-                        throw new Twig.Error("Can't access a key " + key + " on an null or undefined object.");
-                    } else {
-                        return null;
-                    }
-                }
+                
+                gen = `${poped.gen}[${key_gen}]`;
 
                 // Get the variable from the context
-                if (typeof object === 'object' && key in object) {
-                    value = object[key];
-                } else {
-                    value = null;
+                if(Twig.doeval)  {
+                  if (object === null || object === undefined) {
+                      if (that.options.strict_variables) {
+                          throw new Twig.Error("Can't access a key " + key + " on an null or undefined object.");
+                      } else {
+                          return null;
+                      }
+                  }
+
+                  if (typeof object === 'object' && key in object) {
+                      value = object[key];
+                  } else {
+                      value = null;
+                  }
                 }
+
 
                 // When resolving an expression we need to pass next_token in case the expression is a function
                 const result = Twig.expression.resolve.call(that, {val:value,gen:gen}, object, params, next_token);
@@ -1012,7 +1019,7 @@ module.exports = function (Twig) {
      */
     Twig.expression.resolve = function(value, context, params, next_token, object) {
         if (typeof value != 'function')
-            return Twig.Promise.resolve(value);
+            return value;
 
 
         /*

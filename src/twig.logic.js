@@ -134,8 +134,8 @@ module.exports = function (Twig) {
                 var that = this;
 
                 const result = Twig.expression.parse.call(this, token.stack, context);
-                context.nodeInContext.exprGen = o.gen;
-                context.nodeInContext.exprRes = o.val;
+                context.nodeInContext.exprGen = result.gen;
+                context.nodeInContext.exprRes = result.val;
                 const output = Twig.parse.call(that, token.output, context);
                 return {
                     chain: true,
