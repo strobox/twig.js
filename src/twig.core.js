@@ -867,15 +867,19 @@ module.exports = function (Twig) {
           if(!attrs[attrName] || !attrs[attrName].trim()) {
             delete attrs[attrName];
           } else {
-            attrs[attrName=='class'?'className':attrName]
+            attrs[attrName]
              = tryParseExpressions.call(this,attrs[attrName],context);
+            if(attrName=='class') {
+              attrs['className'] = attrs['class'];
+              delete attrs['class'];
+            }
           }
         }
       }
       return attrs;
     }
     function traverseDomNode(context,parent,node,depth) {
-      const {type,name,rawAttrs,classNames,directives,...rval} = node;
+      const {type,name,rawAttrs,classNames,directives} = node;
       const nn = {
         parent,
         directives,
@@ -885,7 +889,7 @@ module.exports = function (Twig) {
       let isLogic = false;
       if(type=="text") {
         nn.type = "text_node";
-        const _expr = tryParseExpressions(clearTextEndings(rval.data),context);
+        const _expr = tryParseExpressions(clearTextEndings(node.data),context);
         if(_expr.expr) {
           if(_expr.whole) {
             nn.type = 'EXPR';
@@ -962,12 +966,26 @@ module.exports = function (Twig) {
           console.warn('Unknown',node.data);
         }
         
+      } else if(name=="style") {
+        let css = node.children.map( c => c.data).join("\n");
+        let nIndent = css.match(/^\s+/);
+        if(nIndent) {
+          css = css.replace(new RegExp(nIndent,'g'),'\n  ');
+        }
+        this.styleBlocks.push({
+           css,
+           name: node.attribs.name,
+           extName: node.attribs.extends,
+        })
+        nn.parent.styleId = this.styleBlocks.length - 1;
+        return {skip: true};
       } else {
         console.warn('Not handled '+name);
+        return {skip: true};
       }
 
       if(name!="gwipdir" && type=="tag") {
-        const children = rval.children.filter( dn => dn.name!='gwip_wrap_logic_val');
+        const children = node.children.filter( dn => dn.name!='gwip_wrap_logic_val');
         const nodes = traverseChilds.call(this,context,nn,children,depth+(isLogic?2:1))
         nn.nodes = nodes;
         nn.attrs = parseAttrs(node.attribs,context);
